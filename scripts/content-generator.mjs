@@ -5,18 +5,18 @@ import { logger } from './logger.mjs';
 dotenv.config();
 
 // ============================
-// ✅ الإعدادات - Gemini API للنصوص
+// ✅ الإعدادات
 // ============================
 const CONFIG = {
-  // ✅ نماذج Gemini للنصوص
+  // ✅ أسماء النماذج الصحيحة
   models: (process.env.GEMINI_TEXT_MODELS ||
-    'gemini-2.0-flash,gemini-1.5-flash,gemini-2.0-flash-lite')
+    'gemini-2.0-flash,gemini-2.0-flash-lite,gemini-1.5-flash-latest,gemini-1.5-pro-latest')
     .split(',')
     .map(m => m.trim()),
 
   timeoutMs  : 60000,
   maxRetries : 3,
-  retryDelay : 15000,
+  retryDelay : 60000, // ✅ 60 ثانية عند 429
 
   content: {
     minSegments        : 5,
@@ -47,7 +47,6 @@ function getWordCountGuide(language) {
 // ✅ التحقق من متغيرات البيئة
 // ============================
 function getApiConfig() {
-  // ✅ المفتاح الأول لتوليد النصوص
   const apiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY;
   const apiUrl = process.env.GEMINI_API_URL ||
     'https://generativelanguage.googleapis.com/v1beta';
@@ -230,7 +229,7 @@ Règles strictes:
 };
 
 // ============================
-// ✅ بناء User Prompt لكل لغة
+// ✅ بناء User Prompt
 // ============================
 function buildUserPrompt(topic, contentType, language) {
   const { minWds, maxWds } = getWordCountGuide(language);
@@ -338,7 +337,7 @@ Retournez JSON uniquement:
 }
 
 // ============================
-// ✅ استدعاء Gemini للنصوص
+// ✅ استدعاء Gemini - مع انتظار 60s عند 429
 // ============================
 async function callGeminiModel(model, systemPrompt, userPrompt, apiKey, apiUrl) {
   let lastError;
@@ -398,8 +397,10 @@ async function callGeminiModel(model, systemPrompt, userPrompt, apiKey, apiUrl) 
 
       if (status === 429) {
         if (attempt < CONFIG.maxRetries) {
-          logger.warn(`⚠️ تجاوز الحصة - انتظار ${CONFIG.retryDelay / 1000}s`);
-          await new Promise(r => setTimeout(r, CONFIG.retryDelay));
+          // ✅ انتظار تدريجي: 60s, 120s
+          const waitMs = CONFIG.retryDelay * attempt;
+          logger.warn(`⚠️ تجاوز الحصة (429) - انتظار ${waitMs / 1000}s (محاولة ${attempt}/${CONFIG.maxRetries})`);
+          await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
         const err        = new Error(`QUOTA_EXCEEDED:${model}`);
@@ -408,7 +409,7 @@ async function callGeminiModel(model, systemPrompt, userPrompt, apiKey, apiUrl) 
       }
 
       if (attempt < CONFIG.maxRetries) {
-        await new Promise(r => setTimeout(r, 3000 * attempt));
+        await new Promise(r => setTimeout(r, 5000 * attempt));
       }
     }
   }
@@ -465,7 +466,6 @@ function validateContentData(data, language = 'ar') {
     data.emotional_triggers = [];
   }
 
-  // ✅ التحقق من الطول
   const fullText  = data.segments.join(' ');
   const wordCount = fullText.trim().split(/\s+/).filter(w => w).length;
   const wps       = CONFIG.content.wordsPerSecond[language] || 2.5;
