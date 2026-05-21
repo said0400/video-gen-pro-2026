@@ -24,7 +24,6 @@ const CONFIG = {
     minDurationSeconds : 40,
     maxDurationSeconds : 80,
 
-    // ✅ متوسط سرعة القراءة (كلمة/ثانية)
     wordsPerSecond: {
       ar: 2.0,
       en: 2.5,
@@ -235,7 +234,7 @@ function buildUserPrompt(topic, contentType, language) {
 
 ⚠️ متطلبات الطول - هذا إلزامي وليس اختيارياً:
 - الحد الأدنى: ${minWds} كلمة عربية
-- الحد الأقصى: ${maxWds} كلمة عربية  
+- الحد الأقصى: ${maxWds} كلمة عربية
 - هذا يعادل 40-80 ثانية قراءة بصوت طبيعي
 - كل مقطع يجب أن يكون جملة كاملة ومعبرة (15-30 كلمة)
 - لا تكتب مقاطع قصيرة أو ناقصة
@@ -244,7 +243,7 @@ function buildUserPrompt(topic, contentType, language) {
 1. HOOK قوي يجذب الانتباه (15-25 كلمة): ابدأ بسؤال مثير أو إحصائية صادمة
 2. المشكلة أو السياق (20-30 كلمة): وضّح التحدي الذي يواجهه المشاهد بتفاصيل
 3. الحل والأفكار الرئيسية (25-35 كلمة): قدم الحل مع أمثلة وتفاصيل عملية
-4. الفائدة والقيمة (20-30 كلمة): اشرح كيف سيتغير حياة المشاهد مع تفاصيل
+4. الفائدة والقيمة (20-30 كلمة): اشرح كيف ستتغير حياة المشاهد مع تفاصيل
 5. CTA قوي (15-25 كلمة): اطلب تفاعلاً محدداً مع سبب مقنع
 
 أرجع JSON فقط بهذا الشكل الدقيق:
@@ -338,9 +337,11 @@ Retournez JSON uniquement dans ce format exact:
 }
 
 // ============================
-// ✅ Retry مع Exponential Backoff
+// ✅ استدعاء Groq - مُصحّح
 // ============================
 async function callGroqModel(model, systemPrompt, userPrompt, apiKey, apiUrl) {
+  let lastError;
+
   for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
     try {
       const response = await axios.post(
@@ -352,7 +353,7 @@ async function callGroqModel(model, systemPrompt, userPrompt, apiKey, apiUrl) {
             { role: 'user',   content: userPrompt   },
           ],
           temperature    : 0.7,
-          max_tokens     : 4000,  // ✅ زيادة لضمان نص كافٍ
+          max_tokens     : 4000,
           top_p          : 0.9,
           response_format: { type: 'json_object' },
         },
@@ -365,49 +366,60 @@ async function callGroqModel(model, systemPrompt, userPrompt, apiKey, apiUrl) {
         }
       );
 
+      // ✅ إرجاع الاستجابة عند النجاح
       return response;
 
     } catch (error) {
+      lastError    = error;
       const status = error.response?.status;
 
       logger.error('🔍 تفاصيل الخطأ', {
         status,
         model,
+        attempt,
         data: JSON.stringify(error.response?.data)?.substring(0, 200),
       });
 
-      if (status === 401 || status === 403) throw error;
+      // ✅ أخطاء لا تستحق إعادة المحاولة
+      if (status === 401 || status === 403) {
+        throw error;
+      }
 
       if (status === 404) {
-        const err = new Error(`MODEL_NOT_FOUND:${model}`);
+        const err       = new Error(`MODEL_NOT_FOUND:${model}`);
         err.isModelNotFound = true;
         throw err;
       }
 
       if (status === 400) {
-        const err = new Error(`BAD_REQUEST:${model}`);
+        const err      = new Error(`BAD_REQUEST:${model}`);
         err.isBadRequest = true;
         throw err;
       }
 
+      // ✅ تجاوز الحصة - انتظر ثم أعد المحاولة
       if (status === 429) {
         if (attempt < CONFIG.maxRetries) {
-          logger.warn(`⚠️ تجاوز الحصة - انتظار ${CONFIG.retryDelay / 1000}s`);
+          logger.warn(`⚠️ تجاوز الحصة (429) - انتظار ${CONFIG.retryDelay / 1000}s`);
           await new Promise(r => setTimeout(r, CONFIG.retryDelay));
           continue;
         }
-        const err = new Error(`QUOTA_EXCEEDED:${model}`);
+        const err      = new Error(`QUOTA_EXCEEDED:${model}`);
         err.isQuotaError = true;
         throw err;
       }
 
+      // ✅ أخطاء شبكة - انتظر قليلاً
       if (attempt < CONFIG.maxRetries) {
-        await new Promise(r => setTimeout(r, 3000 * attempt));
-      } else {
-        throw error;
+        const waitMs = 3000 * attempt;
+        logger.warn(`⚠️ محاولة ${attempt}/${CONFIG.maxRetries} - انتظار ${waitMs}ms`);
+        await new Promise(r => setTimeout(r, waitMs));
       }
     }
   }
+
+  // ✅ رمي آخر خطأ إذا فشلت كل المحاولات
+  throw lastError;
 }
 
 // ============================
@@ -459,9 +471,7 @@ function validateContentData(data, language = 'ar') {
     data.emotional_triggers = [];
   }
 
-  // ============================
   // ✅ التحقق من الطول
-  // ============================
   const fullText  = data.segments.join(' ');
   const wordCount = fullText.trim().split(/\s+/).filter(w => w).length;
   const wps       = CONFIG.content.wordsPerSecond[language] || 2.5;
@@ -469,15 +479,14 @@ function validateContentData(data, language = 'ar') {
 
   logger.info(`📊 إحصائيات النص`, {
     wordCount,
-    duration        : `${duration}s`,
-    target          : `${CONFIG.content.minDurationSeconds}-${CONFIG.content.maxDurationSeconds}s`,
-    status          :
+    duration: `${duration}s`,
+    target  : `${CONFIG.content.minDurationSeconds}-${CONFIG.content.maxDurationSeconds}s`,
+    status  :
       duration < CONFIG.content.minDurationSeconds ? '⚠️ قصير جداً' :
       duration > CONFIG.content.maxDurationSeconds ? '⚠️ طويل جداً' :
       '✅ مثالي',
   });
 
-  // ✅ تحذير إذا كان قصيراً
   if (duration < CONFIG.content.minDurationSeconds) {
     logger.warn(
       `⚠️ النص قصير: ${duration}s | كلمات: ${wordCount} | ` +
@@ -485,14 +494,13 @@ function validateContentData(data, language = 'ar') {
     );
   }
 
-  // ✅ قص إذا كان طويلاً جداً
   if (duration > CONFIG.content.maxDurationSeconds) {
     const maxWords = Math.round(CONFIG.content.maxDurationSeconds * wps);
     const allWords = fullText.trim().split(/\s+/);
     const segCount = data.segments.length;
     const wPerSeg  = Math.floor(maxWords / segCount);
 
-    logger.warn(`⚠️ النص طويل: ${duration}s - سيتم القص إلى ${CONFIG.content.maxDurationSeconds}s`);
+    logger.warn(`⚠️ النص طويل: ${duration}s - سيتم القص`);
 
     data.segments = Array.from({ length: segCount }, (_, i) => {
       const start = i * wPerSeg;
@@ -520,7 +528,7 @@ async function generateForLanguage(language, contentType, topic, apiKey, apiUrl)
     throw new Error(`❌ لا يوجد system prompt للغة "${language}" والنوع "${contentType}"`);
   }
 
-  const userPrompt = buildUserPrompt(topic, contentType, language);
+  const userPrompt        = buildUserPrompt(topic, contentType, language);
   const { minWds, maxWds } = getWordCountGuide(language);
 
   logger.info(`🌍 توليد ${language}: هدف ${minWds}-${maxWds} كلمة`);
@@ -530,11 +538,7 @@ async function generateForLanguage(language, contentType, topic, apiKey, apiUrl)
       logger.info(`🤖 ${language} | النموذج: ${model}`);
 
       const response = await callGroqModel(
-        model,
-        systemPrompt,
-        userPrompt,
-        apiKey,
-        apiUrl
+        model, systemPrompt, userPrompt, apiKey, apiUrl
       );
 
       const rawContent = response?.data?.choices?.[0]?.message?.content;
@@ -563,9 +567,9 @@ async function generateForLanguage(language, contentType, topic, apiKey, apiUrl)
       return validatedContent;
 
     } catch (error) {
-      if (error.isModelNotFound) { logger.warn(`⚠️ ${model}: غير موجود`); continue; }
-      if (error.isQuotaError)    { logger.warn(`⚠️ ${model}: تجاوز الحصة`); continue; }
-      if (error.isBadRequest)    { logger.warn(`⚠️ ${model}: طلب خاطئ`); continue; }
+      if (error.isModelNotFound) { logger.warn(`⚠️ ${model}: غير موجود`);      continue; }
+      if (error.isQuotaError)    { logger.warn(`⚠️ ${model}: تجاوز الحصة`);   continue; }
+      if (error.isBadRequest)    { logger.warn(`⚠️ ${model}: طلب خاطئ`);      continue; }
 
       const status = error.response?.status;
       if (status === 401 || status === 403) {
@@ -573,25 +577,25 @@ async function generateForLanguage(language, contentType, topic, apiKey, apiUrl)
         throw error;
       }
 
-      logger.warn(`⚠️ ${model}: فشل`);
+      logger.warn(`⚠️ ${model}: فشل - جرب التالي`);
     }
   }
 
-  throw new Error(`❌ فشل توليد المحتوى بـ ${language}`);
+  throw new Error(`❌ فشل توليد المحتوى بـ ${language} - جميع النماذج فشلت`);
 }
 
 // ============================
-// ✅ الدالة الرئيسية - توليد لغة واحدة
+// ✅ الدالة الرئيسية - لغة واحدة
 // ============================
 export async function generateEngagingContent(language, contentType, topic) {
   logger.info(`🎬 توليد محتوى: ${contentType} | ${language} | "${topic}"`);
 
-  const { apiKey, apiUrl } = getApiConfig();
-  const { minWds, maxWds } = getWordCountGuide(language);
+  const { apiKey, apiUrl }  = getApiConfig();
+  const { minWds, maxWds }  = getWordCountGuide(language);
 
-  logger.info(`🌐 Groq URL: ${apiUrl}`);
-  logger.info(`🤖 النماذج: ${CONFIG.models.join(', ')}`);
-  logger.info(`⏱️  الهدف  : ${minWds}-${maxWds} كلمة (40-80 ثانية)`);
+  logger.info(`🌐 Groq URL : ${apiUrl}`);
+  logger.info(`🤖 النماذج : ${CONFIG.models.join(', ')}`);
+  logger.info(`⏱️  الهدف   : ${minWds}-${maxWds} كلمة (40-80 ثانية)`);
 
   if (!SYSTEM_PROMPTS[contentType]) {
     throw new Error(
@@ -604,7 +608,7 @@ export async function generateEngagingContent(language, contentType, topic) {
 }
 
 // ============================
-// ✅ الدالة الجديدة - توليد 3 لغات معاً
+// ✅ الدالة الجديدة - 3 لغات معاً
 // ============================
 export async function generateAllLanguages(contentType, topic) {
   logger.section('🌍 توليد المحتوى لجميع اللغات');
@@ -620,24 +624,23 @@ export async function generateAllLanguages(contentType, topic) {
   const languages = ['ar', 'en', 'fr'];
   const results   = {};
 
-  // ✅ توليد كل لغة بالتسلسل لتجنب 429
   for (const lang of languages) {
     logger.info(`\n${'─'.repeat(50)}`);
-    logger.info(`🌍 توليد اللغة: ${lang.toUpperCase()}`);
+    logger.info(`🌍 توليد: ${lang.toUpperCase()}`);
 
     try {
       results[lang] = await generateForLanguage(
         lang, contentType, topic, apiKey, apiUrl
       );
 
-      // ✅ انتظار قصير بين الطلبات
+      // ✅ انتظار بين الطلبات لتجنب 429
       if (lang !== 'fr') {
-        logger.info('⏳ انتظار 2s قبل اللغة التالية...');
+        logger.info('⏳ انتظار 2s...');
         await new Promise(r => setTimeout(r, 2000));
       }
 
     } catch (error) {
-      logger.error(`❌ فشل توليد ${lang}: ${error.message}`);
+      logger.error(`❌ فشل ${lang}: ${error.message}`);
       results[lang] = null;
     }
   }
@@ -646,7 +649,11 @@ export async function generateAllLanguages(contentType, topic) {
   logger.section('📊 تقرير التوليد');
   for (const lang of languages) {
     if (results[lang]) {
-      logger.success(`✅ ${lang}: "${results[lang].title}" | ${results[lang].word_count} كلمة | ${results[lang].estimated_duration_seconds}s`);
+      logger.success(
+        `✅ ${lang}: "${results[lang].title}" | ` +
+        `${results[lang].word_count} كلمة | ` +
+        `${results[lang].estimated_duration_seconds}s`
+      );
     } else {
       logger.error(`❌ ${lang}: فشل التوليد`);
     }
