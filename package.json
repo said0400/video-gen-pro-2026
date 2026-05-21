@@ -3,43 +3,31 @@
   "version": "2.0.0",
   "description": "Professional AI-powered video generation with engaging content",
   "type": "module",
-
+  "private": true,
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
   },
-
   "scripts": {
-    "generate:ar": "cross-env LANGUAGE=ar CONTENT_TYPE=Motivational MAIN_TOPIC='النجاح والإصرار' node scripts/generate-video.mjs",
-    "generate:en": "cross-env LANGUAGE=en CONTENT_TYPE=Motivational MAIN_TOPIC='Success and Determination' node scripts/generate-video.mjs",
-    "generate:fr": "cross-env LANGUAGE=fr CONTENT_TYPE=Motivational MAIN_TOPIC='Succès et Détermination' node scripts/generate-video.mjs",
+    "generate:ar": "node scripts/generate-video.mjs",
+    "generate:en": "node scripts/generate-video.mjs",
+    "generate:fr": "node scripts/generate-video.mjs",
     "generate:all": "node scripts/run-all.mjs",
-
     "test:apis": "node scripts/test-apis.mjs",
-    "test:audio": "cross-env LANGUAGE=ar node scripts/test-audio.mjs",
-
     "ci:install": "npm ci",
     "ci:generate": "node scripts/run-all.mjs",
     "ci:test": "node scripts/test-apis.mjs"
   },
-
   "dependencies": {
-    "axios" : "^1.6.0",
+    "axios": "^1.6.0",
     "dotenv": "^16.3.1",
-
-    "fluent-ffmpeg": "^2.1.3"
-    
-    // ✅ حذفنا ffmpeg-static و ffprobe-static
-    // system ffmpeg يُستخدم في GitHub Actions
-    // أضفهم فقط لو تحتاج local fallback:
-    // "ffmpeg-static"  : "^5.2.0",
-    // "ffprobe-static" : "^4.4.1"
+    "fluent-ffmpeg": "^2.1.3",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^4.4.1"
   },
-
   "devDependencies": {
     "cross-env": "^7.0.3"
   },
-
   "keywords": [
     "video-generation",
     "ai-content",
@@ -48,9 +36,6 @@
     "grok",
     "gemini"
   ],
-
   "author": "",
-  "license": "MIT",
-
-  "private": true
+  "license": "MIT"
 }
