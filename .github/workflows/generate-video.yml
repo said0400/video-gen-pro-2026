@@ -32,7 +32,7 @@ on:
           - '4K'
       
       languages:
-        description: 'اللغات المطلوبة'
+        description: 'اللغات المطلوبة (ar,en,fr)'
         required: true
         default: 'ar,en,fr'
         type: string
@@ -56,8 +56,10 @@ jobs:
         id: parse
         run: |
           LANGS="${{ github.event.inputs.languages }}"
-          echo "languages=${LANGS//,/ }" >> $GITHUB_OUTPUT
-          echo "✅ Languages: ${LANGS//,/ }"
+          # تحويل ar,en,fr إلى ["ar","en","fr"]
+          PARSED_LANGS=$(echo "$LANGS" | tr ',' '\n' | sed 's/^/"/;s/$/"/' | paste -sd ',' | sed 's/,/,/g')
+          echo "languages=[$PARSED_LANGS]" >> $GITHUB_OUTPUT
+          echo "✅ Languages parsed: $LANGS"
       
       - name: 📋 Display Configuration
         run: |
@@ -76,7 +78,7 @@ jobs:
     needs: setup
     strategy:
       matrix:
-        language: ${{ fromJson(format('[{0}]', format('"{0}"', join(split(needs.setup.outputs.languages, ' '), '","')))) }}
+        language: ${{ fromJson(needs.setup.outputs.languages) }}
       max-parallel: 3
     
     steps:
@@ -99,8 +101,8 @@ jobs:
       
       - name: 🎬 Install FFmpeg
         run: |
-          echo "📥 Installing FFmpeg ${{ env.FFMPEG_VERSION }}..."
-          sudo apt-get update
+          echo "📥 Installing FFmpeg..."
+          sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           ffmpeg -version | head -n 1
           echo "✅ FFmpeg installed"
@@ -122,9 +124,10 @@ jobs:
           echo "✅ Environment variables configured"
       
       - name: 🧪 Test APIs
+        continue-on-error: true
         run: |
           echo "🧪 Testing API connections..."
-          node scripts/test-apis.mjs || echo "⚠️ Some APIs may need verification"
+          timeout 30 node scripts/test-apis.mjs || echo "⚠️ API test completed with warnings"
       
       - name: 🎬 Generate video content
         id: generate
@@ -141,6 +144,7 @@ jobs:
       
       - name: 📊 Generate metadata
         run: |
+          mkdir -p output
           cat > output/metadata-${{ matrix.language }}.json << EOF
           {
             "language": "${{ matrix.language }}",
@@ -221,7 +225,7 @@ jobs:
           echo "" >> REPORT.md
           echo "### 📁 Generated Files" >> REPORT.md
           echo "\`\`\`" >> REPORT.md
-          find all-outputs -type f -name "*.json" -o -name "*.wav" | sort >> REPORT.md
+          find all-outputs -type f \( -name "*.json" -o -name "*.wav" \) 2>/dev/null | sort || echo "No files found" >> REPORT.md
           echo "\`\`\`" >> REPORT.md
           cat REPORT.md
       
