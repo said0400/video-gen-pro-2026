@@ -1,1 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+package-lock.json
+pnpm-lock.yaml
 
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build & Output
+dist/
+build/
+output/
+*.mp4
+*.wav
+*.webm
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cache
+.cache/
+.turbo/
+.next/
+
+# Temporary
+temp/
+tmp/
+*.tmp
