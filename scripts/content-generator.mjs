@@ -5,17 +5,18 @@ import { logger } from './logger.mjs';
 dotenv.config();
 
 // ============================
-// ✅ الإعدادات
+// ✅ الإعدادات - DeepSeek API
 // ============================
 const CONFIG = {
-  models: (process.env.GEMINI_TEXT_MODELS ||
-    'gemini-2.0-flash,gemini-2.0-flash-lite')
+  // ✅ نماذج DeepSeek
+  models: (process.env.DEEPSEEK_MODELS ||
+    'deepseek-chat,deepseek-reasoner')
     .split(',')
     .map(m => m.trim()),
 
-  timeoutMs  : 120000, // ✅ دقيقتان - لأن الطلب أكبر
+  timeoutMs  : 120000,
   maxRetries : 2,
-  retryDelay : 60000,
+  retryDelay : 10000,
 
   content: {
     minSegments        : 5,
@@ -38,145 +39,130 @@ function getWordCountGuide(language) {
   return { minWds, maxWds };
 }
 
+// ✅ DeepSeek Config
 function getApiConfig() {
-  const apiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY;
-  const apiUrl = process.env.GEMINI_API_URL ||
-    'https://generativelanguage.googleapis.com/v1beta';
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiUrl = process.env.DEEPSEEK_API_URL ||
+    'https://api.deepseek.com/v1';
 
   if (!apiKey || apiKey === 'undefined' || apiKey.trim() === '') {
-    throw new Error('❌ GEMINI_API_KEY_1 غير موجود');
+    throw new Error(
+      '❌ DEEPSEEK_API_KEY غير موجود\n' +
+      'احصل على مفتاحك من: https://platform.deepseek.com/api_keys'
+    );
   }
 
   return { apiKey, apiUrl };
 }
 
 // ============================
-// ✅ Prompt واحد يطلب 3 لغات معاً
+// ✅ Prompt واحد لـ 3 لغات
 // ============================
 function buildTrilingualPrompt(topic, contentType) {
   const ar = getWordCountGuide('ar');
   const en = getWordCountGuide('en');
   const fr = getWordCountGuide('fr');
 
-  const systemPrompts = {
-    Motivational: {
-      ar: `كاتب محتوى تحفيزي عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
-      en: `English motivational writer: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
-      fr: `Rédacteur motivationnel français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
-    },
-    Educational: {
-      ar: `معلم عربي محترف: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
-      en: `English educator: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
-      fr: `Éducateur français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
-    },
-    Story: {
-      ar: `راوي قصص عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
-      en: `English storyteller: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
-      fr: `Conteur français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
-    },
-    News: {
-      ar: `مذيع أخبار عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
-      en: `English news anchor: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
-      fr: `Présentateur français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
-    },
-    Tech: {
-      ar: `خبير تقنية عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
-      en: `English tech expert: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
-      fr: `Expert tech français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
-    },
-    Lifestyle: {
-      ar: `مؤثر lifestyle عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
-      en: `English lifestyle influencer: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
-      fr: `Influenceur lifestyle français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
-    },
-  };
+  return `You are a professional multilingual content writer. Write a ${contentType} video script about: "${topic}"
 
-  const sp = systemPrompts[contentType] || systemPrompts.Motivational;
+Generate 3 scripts in one response - Arabic, English, and French.
 
-  return `أنت خبير في كتابة المحتوى بثلاث لغات. اكتب نص فيديو ${contentType} احترافي عن: "${topic}"
+=== ARABIC SCRIPT ===
+Rules:
+- Total: ${ar.minWds}-${ar.maxWds} Arabic words (40-80 seconds)
+- Each segment: 15-30 words, complete meaningful sentence
+- Powerful motivational language
 
-⚠️ مهم جداً - اكتب 3 نصوص مختلفة في طلب واحد:
+=== ENGLISH SCRIPT ===
+Rules:
+- Total: ${en.minWds}-${en.maxWds} English words (40-80 seconds)
+- Each segment: 20-35 words, complete meaningful sentence
+- Powerful impactful language
 
-=== النص العربي ===
-${sp.ar}
-القواعد: كل مقطع جملة كاملة 15-30 كلمة، لغة قوية ومؤثرة
+=== FRENCH SCRIPT ===
+Rules:
+- Total: ${fr.minWds}-${fr.maxWds} French words (40-80 seconds)
+- Each segment: 18-32 words, complete meaningful sentence
+- Powerful engaging language
 
-=== English Text ===
-${sp.en}
-Rules: Each segment complete sentence 20-35 words, powerful impactful language
-
-=== Texte Français ===
-${sp.fr}
-Règles: Chaque segment phrase complète 18-32 mots, langage puissant
-
-أرجع JSON واحد يحتوي على النصوص الثلاثة:
+Return ONE JSON object with all 3 languages:
 {
   "ar": {
-    "title": "عنوان عربي جذاب",
-    "hook": "جملة الجذب العربية",
+    "title": "عنوان عربي جذاب ومميز",
+    "hook": "جملة جذب عربية قوية",
     "segments": [
-      "مقطع عربي 1 كامل 15-25 كلمة",
-      "مقطع عربي 2 كامل 20-30 كلمة",
-      "مقطع عربي 3 كامل 25-35 كلمة",
-      "مقطع عربي 4 كامل 20-30 كلمة",
-      "مقطع عربي 5 كامل 15-25 كلمة"
+      "مقطع عربي 1 كامل ومفصل 15-25 كلمة على الأقل",
+      "مقطع عربي 2 كامل ومفصل 20-30 كلمة على الأقل",
+      "مقطع عربي 3 كامل ومفصل 25-35 كلمة على الأقل",
+      "مقطع عربي 4 كامل ومفصل 20-30 كلمة على الأقل",
+      "مقطع عربي 5 كامل ومفصل 15-25 كلمة على الأقل"
     ],
-    "cta": "دعوة للعمل عربية",
+    "cta": "دعوة للعمل عربية واضحة",
     "keywords": ["كلمة1", "كلمة2", "كلمة3"],
     "emotional_triggers": ["مشاعر1", "مشاعر2"]
   },
   "en": {
-    "title": "Catchy English title",
-    "hook": "English opening hook",
+    "title": "Catchy unique English title",
+    "hook": "Powerful English opening hook",
     "segments": [
-      "English segment 1 complete 20-30 words minimum required",
-      "English segment 2 complete 25-35 words minimum required",
-      "English segment 3 complete 30-40 words minimum required",
-      "English segment 4 complete 25-35 words minimum required",
-      "English segment 5 complete 20-30 words minimum required"
+      "English segment 1 complete detailed 20-30 words minimum here",
+      "English segment 2 complete detailed 25-35 words minimum here",
+      "English segment 3 complete detailed 30-40 words minimum here",
+      "English segment 4 complete detailed 25-35 words minimum here",
+      "English segment 5 complete detailed 20-30 words minimum here"
     ],
-    "cta": "English call to action",
-    "keywords": ["k1", "k2", "k3"],
-    "emotional_triggers": ["e1", "e2"]
+    "cta": "Clear compelling English call to action",
+    "keywords": ["keyword1", "keyword2", "keyword3"],
+    "emotional_triggers": ["emotion1", "emotion2"]
   },
   "fr": {
-    "title": "Titre français accrocheur",
-    "hook": "Phrase d'accroche française",
+    "title": "Titre français accrocheur et unique",
+    "hook": "Phrase d'accroche française puissante",
     "segments": [
-      "Segment français 1 complet 18-28 mots minimum requis",
-      "Segment français 2 complet 22-32 mots minimum requis",
-      "Segment français 3 complet 28-38 mots minimum requis",
-      "Segment français 4 complet 22-32 mots minimum requis",
-      "Segment français 5 complet 18-28 mots minimum requis"
+      "Segment français 1 complet détaillé 18-28 mots minimum ici",
+      "Segment français 2 complet détaillé 22-32 mots minimum ici",
+      "Segment français 3 complet détaillé 28-38 mots minimum ici",
+      "Segment français 4 complet détaillé 22-32 mots minimum ici",
+      "Segment français 5 complet détaillé 18-28 mots minimum ici"
     ],
-    "cta": "Appel à l'action français",
-    "keywords": ["m1", "m2", "m3"],
-    "emotional_triggers": ["é1", "é2"]
+    "cta": "Appel à l'action français clair et convaincant",
+    "keywords": ["mot1", "mot2", "mot3"],
+    "emotional_triggers": ["émotion1", "émotion2"]
   }
 }`;
 }
 
 // ============================
-// ✅ استدعاء Gemini
+// ✅ استدعاء DeepSeek - متوافق مع OpenAI
 // ============================
-async function callGeminiModel(model, prompt, apiKey, apiUrl) {
+async function callDeepSeekModel(model, prompt, apiKey, apiUrl) {
   let lastError;
 
   for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
     try {
       const response = await axios.post(
-        `${apiUrl}/models/${model}:generateContent?key=${apiKey}`,
+        `${apiUrl}/chat/completions`,
         {
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature     : 0.7,
-            maxOutputTokens : 8000, // ✅ أكبر لأن 3 لغات
-            topP            : 0.9,
-            responseMimeType: 'application/json',
-          },
+          model,
+          messages: [
+            {
+              role   : 'system',
+              content: 'You are a professional multilingual video script writer. Always respond with valid JSON only.',
+            },
+            {
+              role   : 'user',
+              content: prompt,
+            },
+          ],
+          temperature    : 0.7,
+          max_tokens     : 8000,
+          response_format: { type: 'json_object' },
         },
         {
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type' : 'application/json',
+          },
           timeout: CONFIG.timeoutMs,
         }
       );
@@ -187,32 +173,49 @@ async function callGeminiModel(model, prompt, apiKey, apiUrl) {
       lastError    = error;
       const status = error.response?.status;
 
-      logger.error('🔍 خطأ Gemini', {
-        status, model, attempt,
+      logger.error('🔍 خطأ DeepSeek', {
+        status,
+        model,
+        attempt,
         data: JSON.stringify(error.response?.data)?.substring(0, 200),
       });
 
-      if (status === 401 || status === 403) throw error;
+      // ✅ توقف فوراً
+      if (status === 401 || status === 403) {
+        logger.error('❌ مفتاح DeepSeek غير صحيح');
+        throw error;
+      }
 
+      // ✅ نموذج غير موجود
       if (status === 404) {
-        const err = new Error(`MODEL_NOT_FOUND:${model}`);
+        const err           = new Error(`MODEL_NOT_FOUND:${model}`);
         err.isModelNotFound = true;
         throw err;
       }
 
+      // ✅ تجاوز الحصة
       if (status === 429) {
         if (attempt < CONFIG.maxRetries) {
-          logger.warn(`⚠️ 429 - انتظار ${CONFIG.retryDelay / 1000}s`);
+          logger.warn(`⚠️ تجاوز الحصة - انتظار ${CONFIG.retryDelay / 1000}s`);
           await new Promise(r => setTimeout(r, CONFIG.retryDelay));
           continue;
         }
-        const err = new Error(`QUOTA_EXCEEDED:${model}`);
+        const err        = new Error(`QUOTA_EXCEEDED:${model}`);
         err.isQuotaError = true;
         throw err;
       }
 
+      // ✅ خطأ خادم
+      if (status >= 500) {
+        if (attempt < CONFIG.maxRetries) {
+          logger.warn(`⚠️ خطأ خادم - انتظار ${5000 * attempt}ms`);
+          await new Promise(r => setTimeout(r, 5000 * attempt));
+          continue;
+        }
+      }
+
       if (attempt < CONFIG.maxRetries) {
-        await new Promise(r => setTimeout(r, 5000 * attempt));
+        await new Promise(r => setTimeout(r, 3000 * attempt));
       }
     }
   }
@@ -260,7 +263,6 @@ function validateSingleLanguage(data, language) {
     return null;
   }
 
-  // ✅ حساب الطول
   const fullText  = data.segments.join(' ');
   const wordCount = fullText.trim().split(/\s+/).filter(w => w).length;
   const wps       = CONFIG.content.wordsPerSecond[language] || 2.5;
@@ -270,7 +272,7 @@ function validateSingleLanguage(data, language) {
     duration < 40 ? '⚠️ قصير' : duration > 80 ? '⚠️ طويل' : '✅ مثالي'
   }`);
 
-  if (!Array.isArray(data.keywords))        data.keywords        = [data.title];
+  if (!Array.isArray(data.keywords))           data.keywords           = [data.title];
   if (!Array.isArray(data.emotional_triggers)) data.emotional_triggers = [];
 
   data.word_count                 = wordCount;
@@ -280,32 +282,30 @@ function validateSingleLanguage(data, language) {
 }
 
 // ============================
-// ✅ الدالة الرئيسية - طلب واحد لـ 3 لغات
+// ✅ توليد 3 لغات بطلب واحد
 // ============================
 export async function generateAllLanguagesAtOnce(contentType, topic) {
-  logger.section('🌍 توليد 3 لغات بطلب واحد');
+  logger.section('🌍 توليد 3 لغات بطلب DeepSeek واحد');
   logger.info(`📝 النوع  : ${contentType}`);
   logger.info(`🎯 الموضوع: ${topic}`);
 
   const { apiKey, apiUrl } = getApiConfig();
   const prompt = buildTrilingualPrompt(topic, contentType);
 
-  logger.info(`📤 إرسال طلب واحد لـ Gemini يحتوي 3 لغات...`);
+  logger.info(`🤖 النماذج: ${CONFIG.models.join(', ')}`);
 
-  // ✅ جرب كل النماذج
   for (const model of CONFIG.models) {
     try {
-      logger.info(`🤖 النموذج: ${model}`);
+      logger.info(`🤖 جرب: ${model}`);
 
-      const response   = await callGeminiModel(model, prompt, apiKey, apiUrl);
-      const rawContent = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const response   = await callDeepSeekModel(model, prompt, apiKey, apiUrl);
+      const rawContent = response?.data?.choices?.[0]?.message?.content;
 
       if (!rawContent) {
         logger.warn(`⚠️ ${model}: استجابة فارغة`);
         continue;
       }
 
-      // ✅ استخراج JSON
       let allData;
       try {
         allData = extractJSON(rawContent);
@@ -329,11 +329,11 @@ export async function generateAllLanguagesAtOnce(contentType, topic) {
         logger.success(`✅ ${lang}: "${data.title}" | ${data.word_count} كلمة | ~${data.estimated_duration_seconds}s`);
       });
       failed.forEach(([lang]) => {
-        logger.error(`❌ ${lang}: فشل التحقق`);
+        logger.error(`❌ ${lang}: فشل`);
       });
 
       if (successful.length === 0) {
-        logger.warn(`⚠️ ${model}: جميع اللغات فشلت - جرب التالي`);
+        logger.warn(`⚠️ ${model}: جميع اللغات فشلت`);
         continue;
       }
 
@@ -346,7 +346,7 @@ export async function generateAllLanguagesAtOnce(contentType, topic) {
 
       const status = error.response?.status;
       if (status === 401 || status === 403) {
-        logger.error(`❌ خطأ مصادقة - تحقق من GEMINI_API_KEY_1`);
+        logger.error('❌ خطأ مصادقة - تحقق من DEEPSEEK_API_KEY');
         throw error;
       }
 
@@ -354,24 +354,27 @@ export async function generateAllLanguagesAtOnce(contentType, topic) {
     }
   }
 
-  throw new Error('❌ فشل توليد المحتوى - جميع النماذج فشلت');
+  throw new Error(
+    '❌ فشل توليد المحتوى!\n' +
+    `النماذج المجربة: ${CONFIG.models.join(', ')}\n` +
+    'تحقق من DEEPSEEK_API_KEY'
+  );
 }
 
 // ============================
-// ✅ توليد لغة واحدة (للتوافق مع generate-video.mjs)
+// ✅ توليد لغة واحدة (للتوافق)
 // ============================
 export async function generateEngagingContent(language, contentType, topic) {
-  logger.info(`🎬 توليد محتوى: ${contentType} | ${language} | "${topic}"`);
+  logger.info(`🎬 توليد: ${contentType} | ${language} | "${topic}"`);
 
-  // ✅ نولد الـ 3 لغات دفعة واحدة ونرجع اللغة المطلوبة
   const allResults = await generateAllLanguagesAtOnce(contentType, topic);
 
   const content = allResults[language];
   if (!content) {
-    throw new Error(`❌ فشل توليد المحتوى بـ ${language}`);
+    throw new Error(`❌ فشل توليد ${language}`);
   }
 
-  logger.success(`✅ تم توليد ${language}`, {
+  logger.success(`✅ ${language} جاهز`, {
     title   : content.title,
     words   : content.word_count,
     duration: `${content.estimated_duration_seconds}s`,
