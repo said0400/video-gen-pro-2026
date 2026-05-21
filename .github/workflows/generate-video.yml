@@ -89,60 +89,14 @@ jobs:
           echo "✅ تم رفع package-lock.json إلى الـ repo"
 
   # ============================================
-  # Job 2: الإعداد
+  # Job 2: توليد جميع الفيديوهات - طلب واحد لـ 3 لغات
   # ============================================
-  setup:
-    name: 🔧 Setup Environment
+  generate-all:
+    name: 🎬 Generate All Languages
     runs-on: ubuntu-latest
     needs: create-lockfile
-    outputs:
-      languages: ${{ steps.parse.outputs.languages }}
 
     steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🔍 Parse inputs
-        id: parse
-        run: |
-          LANGS="${{ github.event.inputs.languages }}"
-          JSON_ARRAY=$(echo $LANGS | tr ',' '\n' | jq -R . | jq -s -c .)
-          echo "languages=${JSON_ARRAY}" >> $GITHUB_OUTPUT
-          echo "✅ Languages: ${JSON_ARRAY}"
-
-      - name: 📋 Display Configuration
-        run: |
-          echo "════════════════════════════════════════"
-          echo "🎬 Video Generation Configuration"
-          echo "════════════════════════════════════════"
-          echo "📝 Content Type : ${{ github.event.inputs.content_type }}"
-          echo "🎯 Topic        : ${{ github.event.inputs.main_topic }}"
-          echo "📺 Quality      : ${{ github.event.inputs.video_quality }}"
-          echo "🌍 Languages    : ${{ github.event.inputs.languages }}"
-          echo "🤖 Text Model   : Gemini (API Key 1)"
-          echo "🎙️  Audio Model  : Gemini TTS (API Key 2)"
-          echo "════════════════════════════════════════"
-
-  # ============================================
-  # Job 3: توليد الفيديوهات
-  # ============================================
-  generate-videos:
-    name: 🎥 Generate - ${{ matrix.language }}
-    runs-on: ubuntu-latest
-    needs: setup
-    strategy:
-      matrix:
-        language: ${{ fromJson(needs.setup.outputs.languages) }}
-      max-parallel: 1      # ✅ لغة واحدة في كل مرة لتجنب 429
-      fail-fast: false
-
-    steps:
-      - name: ⏳ Wait to avoid rate limits
-        run: |
-          echo "⏳ انتظار 30s لتجنب تجاوز الحصة..."
-          sleep 30
-          echo "✅ جاهز للبدء"
-
       - name: 📥 Checkout code
         uses: actions/checkout@v4
         with:
@@ -178,14 +132,14 @@ jobs:
       - name: 🔐 Setup environment
         run: |
           cat > .env << EOF
-          LANGUAGE=${{ matrix.language }}
+          LANGUAGES=${{ github.event.inputs.languages }}
           CONTENT_TYPE=${{ github.event.inputs.content_type }}
           MAIN_TOPIC=${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY=${{ github.event.inputs.video_quality }}
           GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }}
           GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_URL=https://generativelanguage.googleapis.com/v1beta
-          GEMINI_TEXT_MODELS=gemini-2.0-flash,gemini-2.0-flash-lite,gemini-1.5-flash-latest
+          GEMINI_TEXT_MODELS=gemini-2.0-flash,gemini-2.0-flash-lite
           GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
           PIXABAY_API_KEY=${{ secrets.PIXABAY_API_KEY }}
           PIXABAY_API_URL=https://pixabay.com/api/videos/
@@ -194,60 +148,115 @@ jobs:
           NODE_ENV=production
           DEBUG_MODE=false
           LOG_TO_FILE=true
-          PARALLEL_MODE=false
           EOF
           echo "✅ Environment configured"
 
       - name: 🧪 Test APIs
+        env:
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
         run: |
           echo "🧪 Testing API connections..."
           node scripts/test-apis.mjs || echo "⚠️ Some APIs may need verification"
 
-      - name: 🎬 Generate video
-        id: generate
+      - name: 🎬 Generate - Arabic (ar)
+        if: contains(github.event.inputs.languages, 'ar')
+        id: generate_ar
         env:
-          LANGUAGE: ${{ matrix.language }}
+          LANGUAGE: ar
           CONTENT_TYPE: ${{ github.event.inputs.content_type }}
           MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
           GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_URL: https://generativelanguage.googleapis.com/v1beta
-          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-2.0-flash-lite,gemini-1.5-flash-latest
+          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-2.0-flash-lite
           GEMINI_TTS_MODEL: gemini-2.5-flash-preview-tts
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          PIXABAY_API_URL: https://pixabay.com/api/videos/
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          PEXELS_API_URL: https://api.pexels.com/videos/search
           NODE_ENV: production
-          DEBUG_MODE: 'false'
-          LOG_TO_FILE: 'true'
         run: |
-          echo "🎬 Generating video for ${{ matrix.language }}..."
+          echo "🎬 Generating Arabic video..."
           node scripts/generate-video.mjs
-          echo "timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
-          echo "✅ Video generation completed"
+          echo "✅ Arabic done"
+
+      - name: ⏳ Wait between languages
+        run: |
+          echo "⏳ انتظار 30s بين اللغات..."
+          sleep 30
+
+      - name: 🎬 Generate - English (en)
+        if: contains(github.event.inputs.languages, 'en')
+        id: generate_en
+        env:
+          LANGUAGE: en
+          CONTENT_TYPE: ${{ github.event.inputs.content_type }}
+          MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
+          VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_URL: https://generativelanguage.googleapis.com/v1beta
+          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-2.0-flash-lite
+          GEMINI_TTS_MODEL: gemini-2.5-flash-preview-tts
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          NODE_ENV: production
+        run: |
+          echo "🎬 Generating English video..."
+          node scripts/generate-video.mjs
+          echo "✅ English done"
+
+      - name: ⏳ Wait between languages
+        run: |
+          echo "⏳ انتظار 30s بين اللغات..."
+          sleep 30
+
+      - name: 🎬 Generate - French (fr)
+        if: contains(github.event.inputs.languages, 'fr')
+        id: generate_fr
+        env:
+          LANGUAGE: fr
+          CONTENT_TYPE: ${{ github.event.inputs.content_type }}
+          MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
+          VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_URL: https://generativelanguage.googleapis.com/v1beta
+          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-2.0-flash-lite
+          GEMINI_TTS_MODEL: gemini-2.5-flash-preview-tts
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          NODE_ENV: production
+        run: |
+          echo "🎬 Generating French video..."
+          node scripts/generate-video.mjs
+          echo "✅ French done"
 
       - name: 📊 Generate metadata
         run: |
-          cat > output/metadata-${{ matrix.language }}.json << EOF
+          TIMESTAMP=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+          for LANG in $(echo "${{ github.event.inputs.languages }}" | tr ',' ' '); do
+            cat > output/metadata-${LANG}.json << EOF
           {
-            "language"    : "${{ matrix.language }}",
+            "language"    : "${LANG}",
             "content_type": "${{ github.event.inputs.content_type }}",
             "topic"       : "${{ github.event.inputs.main_topic }}",
             "quality"     : "${{ github.event.inputs.video_quality }}",
-            "generated_at": "${{ steps.generate.outputs.timestamp }}",
+            "generated_at": "${TIMESTAMP}",
             "workflow_run": "${{ github.run_id }}",
-            "commit_sha"  : "${{ github.sha }}"
+            "commit_sha"  : "${{ github.sha }}",
+            "method"      : "single_request_3_languages"
           }
           EOF
-          echo "✅ Metadata generated"
+            echo "✅ Metadata: ${LANG}"
+          done
 
       - name: 📤 Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: video-output-${{ matrix.language }}
+          name: video-outputs-all
           path: |
             output/
             logs/
@@ -257,20 +266,22 @@ jobs:
       - name: 📝 Success summary
         if: success()
         run: |
-          echo "## ✅ تم التوليد بنجاح"                                                    >> $GITHUB_STEP_SUMMARY
-          echo ""                                                                            >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 التفاصيل"                                                            >> $GITHUB_STEP_SUMMARY
-          echo "- **اللغة**    : ${{ matrix.language }}"                                    >> $GITHUB_STEP_SUMMARY
-          echo "- **النوع**    : ${{ github.event.inputs.content_type }}"                   >> $GITHUB_STEP_SUMMARY
-          echo "- **الموضوع**  : ${{ github.event.inputs.main_topic }}"                     >> $GITHUB_STEP_SUMMARY
-          echo "- **الجودة**   : ${{ github.event.inputs.video_quality }}"                  >> $GITHUB_STEP_SUMMARY
-          echo "- **الوقت**    : ${{ steps.generate.outputs.timestamp }}"                   >> $GITHUB_STEP_SUMMARY
-          echo "- **النموذج**  : Gemini (نصوص) + Gemini TTS (صوت)"                        >> $GITHUB_STEP_SUMMARY
-          echo ""                                                                            >> $GITHUB_STEP_SUMMARY
-          echo "### 📁 الملفات"                                                             >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/input-props-${{ matrix.language }}.json\`"                       >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/audio-${{ matrix.language }}.wav\`"                              >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/metadata-${{ matrix.language }}.json\`"                          >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ تم التوليد بنجاح"                                                     >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                             >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 التفاصيل"                                                             >> $GITHUB_STEP_SUMMARY
+          echo "- **النوع**   : ${{ github.event.inputs.content_type }}"                    >> $GITHUB_STEP_SUMMARY
+          echo "- **الموضوع** : ${{ github.event.inputs.main_topic }}"                      >> $GITHUB_STEP_SUMMARY
+          echo "- **الجودة**  : ${{ github.event.inputs.video_quality }}"                   >> $GITHUB_STEP_SUMMARY
+          echo "- **اللغات**  : ${{ github.event.inputs.languages }}"                       >> $GITHUB_STEP_SUMMARY
+          echo "- **الطريقة** : طلب Gemini واحد → 3 لغات"                                   >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                             >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 الملفات"                                                              >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/input-props-ar.json\`"                                            >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/input-props-en.json\`"                                            >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/input-props-fr.json\`"                                            >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/audio-ar.wav\`"                                                   >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/audio-en.wav\`"                                                   >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/audio-fr.wav\`"                                                   >> $GITHUB_STEP_SUMMARY
 
       - name: ❌ Failure summary
         if: failure()
@@ -282,15 +293,15 @@ jobs:
           echo "2. تحقق من GEMINI_API_KEY_2 في GitHub Secrets"        >> $GITHUB_STEP_SUMMARY
           echo "3. تحقق من PIXABAY_API_KEY في GitHub Secrets"         >> $GITHUB_STEP_SUMMARY
           echo "4. راجع الـ logs في الـ artifacts"                    >> $GITHUB_STEP_SUMMARY
-          echo "5. تجاوز الحصة؟ انتظر دقيقة وأعد المحاولة"           >> $GITHUB_STEP_SUMMARY
+          echo "5. تجاوز الحصة؟ انتظر وأعد المحاولة"                 >> $GITHUB_STEP_SUMMARY
 
   # ============================================
-  # Job 4: التجميع النهائي
+  # Job 3: التجميع النهائي
   # ============================================
   finalize:
     name: ✨ Finalize
     runs-on: ubuntu-latest
-    needs: generate-videos
+    needs: generate-all
     if: always()
 
     steps:
@@ -311,7 +322,7 @@ jobs:
           echo "- الموضوع  : ${{ github.event.inputs.main_topic }}"                                                                           >> $GITHUB_STEP_SUMMARY
           echo "- الجودة   : ${{ github.event.inputs.video_quality }}"                                                                        >> $GITHUB_STEP_SUMMARY
           echo "- اللغات   : ${{ github.event.inputs.languages }}"                                                                            >> $GITHUB_STEP_SUMMARY
-          echo "- النماذج  : Gemini (نصوص) + Gemini TTS (صوت)"                                                                              >> $GITHUB_STEP_SUMMARY
+          echo "- الطريقة  : طلب Gemini واحد → 3 لغات + 3 أصوات"                                                                           >> $GITHUB_STEP_SUMMARY
           echo ""                                                                                                                              >> $GITHUB_STEP_SUMMARY
           echo "### 📁 الملفات المولدة"                                                                                                       >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`"                                                                                                                        >> $GITHUB_STEP_SUMMARY
@@ -331,8 +342,8 @@ jobs:
           echo "════════════════════════════════════════"
           echo "✅ تم توليد جميع الفيديوهات بنجاح!"
           echo "════════════════════════════════════════"
-          echo "🤖 النصوص: Gemini API Key 1"
-          echo "🎙️  الصوت : Gemini TTS API Key 2"
+          echo "🤖 النصوص : Gemini (طلب واحد - 3 لغات)"
+          echo "🎙️  الصوت  : Gemini TTS × 3 لغات"
           echo "📊 راجع الـ artifacts للملفات"
           echo "════════════════════════════════════════"
 
