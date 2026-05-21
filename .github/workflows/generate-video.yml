@@ -12,12 +12,13 @@ on:
           - Motivational
           - Educational
           - Story
-      
+          - News
+          - Tech
+          - Lifestyle
       main_topic:
         description: 'موضوع الفيديو'
         required: true
         type: string
-      
       video_quality:
         description: 'جودة الفيديو'
         required: true
@@ -26,30 +27,42 @@ on:
         options:
           - '720p'
           - '1080p'
-      
+          - '4K'
       languages:
         description: 'اللغات (ar,en,fr)'
         required: true
         default: 'ar,en,fr'
         type: string
 
+env:
+  NODE_VERSION: '18'
+
 jobs:
   setup:
-    name: 🔧 Setup
+    name: 🔧 Setup Environment
     runs-on: ubuntu-latest
     outputs:
       languages: ${{ steps.parse.outputs.languages }}
-    
+
     steps:
-      - name: 🔍 Parse languages
+      - uses: actions/checkout@v4
+
+      - name: 🔍 Parse inputs
         id: parse
         run: |
           LANGS="${{ github.event.inputs.languages }}"
-          PARSED_LANGS=$(echo "$LANGS" | tr ',' '\n' | sed 's/^/"/;s/$/"/' | paste -sd ',' | sed 's/,/,/g')
-          echo "languages=[$PARSED_LANGS]" >> $GITHUB_OUTPUT
-          echo "✅ Languages: $LANGS"
+          JSON_ARRAY=$(echo $LANGS | tr ',' '\n' | jq -R . | jq -s -c .)
+          echo "languages=${JSON_ARRAY}" >> $GITHUB_OUTPUT
+          echo "✅ Languages: ${JSON_ARRAY}"
 
-  generate:
+      - name: 📋 Display Configuration
+        run: |
+          echo "📝 Content Type : ${{ github.event.inputs.content_type }}"
+          echo "🎯 Topic        : ${{ github.event.inputs.main_topic }}"
+          echo "📺 Quality      : ${{ github.event.inputs.video_quality }}"
+          echo "🌍 Languages    : ${{ github.event.inputs.languages }}"
+
+  generate-videos:
     name: 🎥 Generate - ${{ matrix.language }}
     runs-on: ubuntu-latest
     needs: setup
@@ -57,76 +70,100 @@ jobs:
       matrix:
         language: ${{ fromJson(needs.setup.outputs.languages) }}
       max-parallel: 3
-    
+      fail-fast: false  # ✅ مهم - لو فشلت لغة لا يوقف الباقين
+
     steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
-      
-      - name: 🔧 Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
         with:
-          node-version: '18'
-      
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: 📁 Create directories
+        run: mkdir -p output logs
+
       - name: 📦 Install dependencies
-        run: npm install
-      
+        run: npm ci  # ✅ أفضل من npm install في CI
+
       - name: 🎬 Install FFmpeg
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           ffmpeg -version | head -n 1
-      
-      - name: 🔐 Setup .env
-        run: |
-          cat > .env << EOF
-          LANGUAGE=${{ matrix.language }}
-          CONTENT_TYPE=${{ github.event.inputs.content_type }}
-          MAIN_TOPIC=${{ github.event.inputs.main_topic }}
-          VIDEO_QUALITY=${{ github.event.inputs.video_quality }}
-          GROK_API_KEY=${{ secrets.GROK_API_KEY }}
-          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-          PIXABAY_API_KEY=${{ secrets.PIXABAY_API_KEY }}
-          NODE_ENV=production
-          DEBUG_MODE=false
-          EOF
-      
+
       - name: 🧪 Test APIs
-        continue-on-error: true
-        run: timeout 30 node scripts/test-apis.mjs || true
-      
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/test-apis.mjs || echo "⚠️ API check warning"
+
       - name: 🎬 Generate video
+        id: generate
+        env:
+          LANGUAGE: ${{ matrix.language }}
+          CONTENT_TYPE: ${{ github.event.inputs.content_type }}
+          MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
+          VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: |
-          LANGUAGE=${{ matrix.language }} \
-          CONTENT_TYPE="${{ github.event.inputs.content_type }}" \
-          MAIN_TOPIC="${{ github.event.inputs.main_topic }}" \
           node scripts/generate-video.mjs
-      
+          echo "timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      - name: 📊 Generate metadata
+        run: |
+          cat > output/metadata-${{ matrix.language }}.json << EOF
+          {
+            "language": "${{ matrix.language }}",
+            "content_type": "${{ github.event.inputs.content_type }}",
+            "topic": "${{ github.event.inputs.main_topic }}",
+            "quality": "${{ github.event.inputs.video_quality }}",
+            "generated_at": "${{ steps.generate.outputs.timestamp }}",
+            "workflow_run": "${{ github.run_id }}"
+          }
+          EOF
+
       - name: 📤 Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: video-${{ matrix.language }}
+          name: video-output-${{ matrix.language }}
           path: |
             output/
             logs/
           retention-days: 30
+          if-no-files-found: warn
 
   finalize:
-    name: ✨ Done
+    name: ✨ Finalize
     runs-on: ubuntu-latest
-    needs: generate
+    needs: generate-videos
     if: always()
-    
+
     steps:
-      - name: 📥 Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: outputs
-      
-      - name: ✅ Success
+          path: all-outputs
+
+      - name: 📊 Final Report
         run: |
-          echo "════════════════════════════════════════"
-          echo "✅ All videos generated successfully!"
-          echo "════════════════════════════════════════"
-          echo "📊 Check artifacts for output files"
-          echo "════════════════════════════════════════"
+          echo "## 🎬 Generation Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Topic**: ${{ github.event.inputs.main_topic }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Languages**: ${{ github.event.inputs.languages }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files:" >> $GITHUB_STEP_SUMMARY
+          find all-outputs -type f | sort | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+
+      - name: 📤 Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: generation-report
+          path: all-outputs/
+          retention-days: 90
