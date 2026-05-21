@@ -26,10 +26,10 @@ const CONFIG = {
   videoQuality: process.env.VIDEO_QUALITY || '1080p',
 };
 
-// ✅ المفاتيح المطلوبة
+// ✅ المفاتيح المطلوبة - محدّثة
 const REQUIRED_ENV_KEYS = [
-  'GROQ_API_KEY',   // لتوليد النصوص
-  'GEMINI_API_KEY', // لتوليد الصوت
+  'GEMINI_API_KEY_1', // لتوليد النصوص
+  'GEMINI_API_KEY_2', // لتوليد الصوت
 ];
 
 // ============================
@@ -92,8 +92,8 @@ function validateContent(content) {
   const wordCount = fullText.trim().split(/\s+/).filter(w => w).length;
 
   // ✅ سرعة القراءة حسب اللغة
-  const wpsMap = { ar: 2.0, en: 2.5, fr: 2.3 };
-  const wps    = wpsMap[CONFIG.language] || 2.5;
+  const wpsMap   = { ar: 2.0, en: 2.5, fr: 2.3 };
+  const wps      = wpsMap[CONFIG.language] || 2.5;
   const duration = Math.round(wordCount / wps);
 
   logger.success(`✅ المحتوى سليم`, {
@@ -103,7 +103,6 @@ function validateContent(content) {
     status  : duration < 40 ? '⚠️ قصير' : duration > 80 ? '⚠️ طويل' : '✅ مثالي',
   });
 
-  // ✅ تحذير إذا كان قصيراً
   if (duration < 40) {
     logger.warn(
       `⚠️ تحذير: النص قصير جداً!\n` +
@@ -151,8 +150,6 @@ function validateAudio(audioPath) {
     throw new Error(`❌ ملف الصوت فارغ: ${audioPath}`);
   }
 
-  // ✅ تقدير مدة الصوت من الحجم
-  // WAV: ~48KB/ثانية عند 24000Hz 16bit mono
   const estimatedDuration = Math.round(stats.size / 48000);
 
   logger.success(`✅ الصوت جاهز`, {
@@ -184,20 +181,21 @@ async function main() {
     logger.info(`🎯 الموضوع   : ${CONFIG.mainTopic}`);
     logger.info(`📺 الجودة    : ${CONFIG.videoQuality}`);
     logger.info(`🌍 اللغة     : ${CONFIG.language}`);
+    logger.info(`🔑 النصوص    : GEMINI_API_KEY_1`);
+    logger.info(`🔑 الصوت     : GEMINI_API_KEY_2`);
 
     // ✅ 0: التحقق من البيئة
     validateEnvironment();
     ensureDirectories();
 
-    // ✅ 1: توليد المحتوى بـ Groq
-    logger.section('📝 الخطوة 1: توليد المحتوى (Groq)');
+    // ✅ 1: توليد المحتوى بـ Gemini (مفتاح 1)
+    logger.section('📝 الخطوة 1: توليد المحتوى (Gemini API Key 1)');
     const content = await generateEngagingContent(
       CONFIG.language,
       CONFIG.contentType,
       CONFIG.mainTopic
     );
 
-    // ✅ التحقق مع الحصول على إحصائيات الطول
     const { wordCount, duration } = validateContent(content);
 
     // ✅ 2: البحث عن الفيديوهات
@@ -205,8 +203,8 @@ async function main() {
     const rawVideos = await searchAllVideos(content.keywords);
     const videos    = validateVideos(rawVideos);
 
-    // ✅ 3: توليد الصوت بـ Gemini TTS
-    logger.section('🎙️ الخطوة 3: توليد الصوت (Gemini TTS)');
+    // ✅ 3: توليد الصوت بـ Gemini TTS (مفتاح 2)
+    logger.section('🎙️ الخطوة 3: توليد الصوت (Gemini TTS - API Key 2)');
     const fullScript = content.segments
       .filter(s => typeof s === 'string' && s.trim())
       .join(' ');
@@ -215,7 +213,7 @@ async function main() {
       throw new Error('❌ النص الكامل فارغ بعد دمج المقاطع');
     }
 
-    logger.info(`📝 طول النص الكامل: ${fullScript.length} حرف | ${wordCount} كلمة | ~${duration}s`);
+    logger.info(`📝 طول النص: ${fullScript.length} حرف | ${wordCount} كلمة | ~${duration}s`);
 
     const audioPath = await generateAudio(fullScript, CONFIG.language);
     validateAudio(audioPath);
@@ -230,39 +228,29 @@ async function main() {
     // ✅ 5: حفظ البيانات
     logger.section('💾 الخطوة 5: حفظ البيانات');
     const inputProps = {
-      // المحتوى
       title             : content.title,
       segments          : content.segments,
       keywords          : content.keywords,
       cta               : content.cta,
       emotional_triggers: content.emotional_triggers || [],
-
-      // ✅ إحصائيات الطول
-      word_count                : wordCount,
+      word_count        : wordCount,
       estimated_duration_seconds: duration,
-
-      // الميديا
-      videos   : videos,
-      audioPath: audioPath,
-      musicUrl : musicUrl,
-
-      // الإعدادات
-      language   : CONFIG.language,
-      contentType: CONFIG.contentType,
-      topic      : CONFIG.mainTopic,
-      quality    : CONFIG.videoQuality,
-
-      // معلومات إضافية
-      generatedAt : new Date().toISOString(),
-      processingMs: Date.now() - startTime,
+      videos,
+      audioPath,
+      musicUrl,
+      language          : CONFIG.language,
+      contentType       : CONFIG.contentType,
+      topic             : CONFIG.mainTopic,
+      quality           : CONFIG.videoQuality,
+      generatedAt       : new Date().toISOString(),
+      processingMs      : Date.now() - startTime,
     };
 
     const propsPath = saveResults(inputProps);
 
     // ✅ ملخص نهائي
-    const elapsed     = ((Date.now() - startTime) / 1000).toFixed(1);
-    const audioStats  = fs.statSync(audioPath);
-    const audioDur    = Math.round(audioStats.size / 48000);
+    const elapsed  = ((Date.now() - startTime) / 1000).toFixed(1);
+    const audioDur = Math.round(fs.statSync(audioPath).size / 48000);
 
     logger.section('✨ اكتمل التوليد بنجاح!');
     logger.info(`⏱️  وقت المعالجة  : ${elapsed} ثانية`);
