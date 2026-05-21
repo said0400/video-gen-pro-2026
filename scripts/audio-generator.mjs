@@ -13,14 +13,20 @@ const ROOT_DIR   = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 const LOGS_DIR   = path.join(ROOT_DIR, 'logs');
 
+// ============================
+// ✅ الإعدادات
+// ============================
 const CONFIG = {
-  model     : 'gemini-2.5-flash-preview-tts',
+  model     : process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts',
   timeoutMs : 120000,
   maxRetries: 3,
   retryDelay: 5000,
   maxChars  : 4500,
 };
 
+// ============================
+// ✅ إعدادات الأصوات لكل لغة
+// ============================
 const VOICE_CONFIG = {
   ar: {
     voiceName  : 'Alnilam',
@@ -39,20 +45,31 @@ Style: Naturel. Rythme: Modéré. Accent: Français standard.`,
   },
 };
 
+// ============================
+// ✅ التحقق من المتغيرات - المفتاح الثاني للصوت
+// ============================
 function getApiConfig() {
-  const apiKey = process.env.GEMINI_API_KEY;
+  // ✅ المفتاح الثاني مخصص لتوليد الصوت
+  const apiKey = process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY;
+
   if (!apiKey || apiKey === 'undefined' || apiKey.trim() === '') {
     throw new Error(
-      '❌ GEMINI_API_KEY غير موجود\n' +
-      'احصل على مفتاحك من: https://aistudio.google.com/'
+      '❌ GEMINI_API_KEY_2 غير موجود\n' +
+      'احصل على مفتاحك من: https://aistudio.google.com/\n' +
+      'أضفه في GitHub Secrets باسم GEMINI_API_KEY_2'
     );
   }
+
   return {
     apiKey,
-    apiUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    apiUrl: process.env.GEMINI_API_URL ||
+      'https://generativelanguage.googleapis.com/v1beta',
   };
 }
 
+// ============================
+// ✅ تحويل PCM إلى WAV
+// ============================
 function convertToWav(audioData, mimeType) {
   let bitsPerSample = 16;
   let sampleRate    = 24000;
@@ -93,6 +110,9 @@ function convertToWav(audioData, mimeType) {
   return Buffer.concat([header, audioData]);
 }
 
+// ============================
+// ✅ تقسيم النص الطويل
+// ============================
 function splitTextIntoChunks(text, maxChars = CONFIG.maxChars) {
   if (text.length <= maxChars) return [text];
 
@@ -116,6 +136,9 @@ function splitTextIntoChunks(text, maxChars = CONFIG.maxChars) {
   return chunks;
 }
 
+// ============================
+// ✅ Retry مع Exponential Backoff
+// ============================
 async function withRetry(fn, retries = CONFIG.maxRetries) {
   let lastError;
 
@@ -155,6 +178,9 @@ async function withRetry(fn, retries = CONFIG.maxRetries) {
   throw lastError;
 }
 
+// ============================
+// ✅ توليد صوت جزء واحد
+// ============================
 async function generateChunkAudio(text, voiceConfig, apiKey, apiUrl) {
   const fullText = `${voiceConfig.audioPrompt}\n\n## Transcript:\n${text}`;
 
@@ -212,6 +238,9 @@ async function generateChunkAudio(text, voiceConfig, apiKey, apiUrl) {
   return audioBuffer;
 }
 
+// ============================
+// ✅ دمج WAV buffers
+// ============================
 function mergeWavBuffers(buffers) {
   if (buffers.length === 1) return buffers[0];
 
@@ -227,6 +256,9 @@ function mergeWavBuffers(buffers) {
   return Buffer.concat([firstHeader, ...dataBuffers]);
 }
 
+// ============================
+// ✅ إنشاء المجلدات
+// ============================
 function ensureDirectories() {
   [OUTPUT_DIR, LOGS_DIR].forEach(dir => {
     if (!fs.existsSync(dir)) {
@@ -236,9 +268,9 @@ function ensureDirectories() {
   });
 }
 
-// ============================================================
-// ✅ الدالة الرئيسية المُصدَّرة
-// ============================================================
+// ============================
+// ✅ الدالة الرئيسية
+// ============================
 export async function generateAudio(scriptText, language = 'ar') {
   logger.section('🎙️ توليد الصوت');
 
@@ -259,6 +291,7 @@ export async function generateAudio(scriptText, language = 'ar') {
   logger.info(`🌍 اللغة  : ${language}`);
   logger.info(`🎤 الصوت  : ${voiceConfig.voiceName}`);
   logger.info(`🤖 النموذج: ${CONFIG.model}`);
+  logger.info(`🔑 المفتاح: GEMINI_API_KEY_2`);
   logger.info(`📝 النص   : ${scriptText.length} حرف`);
 
   ensureDirectories();
@@ -307,9 +340,9 @@ export async function generateAudio(scriptText, language = 'ar') {
   return audioPath;
 }
 
-// ============================================================
-// ✅ دوال مساعدة مُصدَّرة
-// ============================================================
+// ============================
+// ✅ دوال مساعدة
+// ============================
 export function isSupportedLanguage(language) {
   return language in VOICE_CONFIG;
 }
