@@ -5,13 +5,17 @@ import { logger } from './logger.mjs';
 dotenv.config();
 
 // ============================
-// ✅ الإعدادات - Gemini بدل Grok
+// ✅ الإعدادات
 // ============================
 const CONFIG = {
-  model      : process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+  // ✅ قائمة النماذج مرتبة (الأول = الأفضل)
+  models: (process.env.GEMINI_FALLBACK_MODELS || 'gemini-1.5-flash,gemini-2.0-flash,gemini-1.5-pro')
+    .split(',')
+    .map(m => m.trim()),
+
   timeoutMs  : 60000,
-  maxRetries : 3,
-  retryDelay : 2000,
+  maxRetries : 2,
+  retryDelay : 30000, // ✅ 30 ثانية عند 429
 
   content: {
     minSegments: 3,
@@ -36,7 +40,7 @@ function getApiConfig() {
 }
 
 // ============================
-// ✅ القوالب - كاملة لكل اللغات
+// ✅ القوالب
 // ============================
 const CONTENT_TEMPLATES = {
   ar: {
@@ -216,7 +220,6 @@ Return JSON only:
 
     Educational: {
       systemPrompt: `You are an expert teacher creating engaging educational content.`,
-
       userPrompt: (topic) => `Write a professional educational video script about: "${topic}"
 
 Return JSON only:
@@ -232,7 +235,6 @@ Return JSON only:
 
     Story: {
       systemPrompt: `You are a professional storyteller who makes viewers feel the story.`,
-
       userPrompt: (topic) => `Write a professional story video about: "${topic}"
 
 Return JSON only:
@@ -248,7 +250,6 @@ Return JSON only:
 
     News: {
       systemPrompt: `You are a professional news anchor presenting news engagingly.`,
-
       userPrompt: (topic) => `Write a professional news video script about: "${topic}"
 
 Return JSON only:
@@ -264,7 +265,6 @@ Return JSON only:
 
     Tech: {
       systemPrompt: `You are a tech expert explaining technology in a simplified way.`,
-
       userPrompt: (topic) => `Write a professional tech video script about: "${topic}"
 
 Return JSON only:
@@ -280,7 +280,6 @@ Return JSON only:
 
     Lifestyle: {
       systemPrompt: `You are a lifestyle influencer sharing practical tips.`,
-
       userPrompt: (topic) => `Write a professional lifestyle video script about: "${topic}"
 
 Return JSON only:
@@ -298,7 +297,6 @@ Return JSON only:
   fr: {
     Motivational: {
       systemPrompt: `Vous êtes un expert en création de contenu motivationnel professionnel.`,
-
       userPrompt: (topic) => `Écrivez un script vidéo motivationnel sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -314,7 +312,6 @@ Retournez JSON uniquement:
 
     Educational: {
       systemPrompt: `Vous êtes un enseignant expert créant du contenu éducatif engageant.`,
-
       userPrompt: (topic) => `Écrivez un script vidéo éducatif sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -330,7 +327,6 @@ Retournez JSON uniquement:
 
     Story: {
       systemPrompt: `Vous êtes un conteur professionnel.`,
-
       userPrompt: (topic) => `Écrivez une histoire vidéo sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -346,7 +342,6 @@ Retournez JSON uniquement:
 
     News: {
       systemPrompt: `Vous êtes un présentateur de nouvelles professionnel.`,
-
       userPrompt: (topic) => `Écrivez un script vidéo d'actualités sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -362,7 +357,6 @@ Retournez JSON uniquement:
 
     Tech: {
       systemPrompt: `Vous êtes un expert tech expliquant la technologie simplement.`,
-
       userPrompt: (topic) => `Écrivez un script vidéo tech sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -378,7 +372,6 @@ Retournez JSON uniquement:
 
     Lifestyle: {
       systemPrompt: `Vous êtes un influenceur lifestyle partageant des conseils pratiques.`,
-
       userPrompt: (topic) => `Écrivez un script vidéo lifestyle sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -395,44 +388,72 @@ Retournez JSON uniquement:
 };
 
 // ============================
-// ✅ Retry مع Exponential Backoff
+// ✅ استدعاء نموذج واحد مع Retry
 // ============================
-async function withRetry(fn, maxRetries = CONFIG.maxRetries) {
-  let lastError;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+async function callGeminiModel(model, fullPrompt, apiKey, apiUrl) {
+  for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
     try {
-      return await fn();
+      const response = await axios.post(
+        `${apiUrl}/models/${model}:generateContent?key=${apiKey}`,
+        {
+          contents: [{ parts: [{ text: fullPrompt }] }],
+          generationConfig: {
+            temperature     : 0.85,
+            maxOutputTokens : 3000,
+            topP            : 0.95,
+            responseMimeType: 'application/json',
+          },
+        },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: CONFIG.timeoutMs,
+        }
+      );
+
+      return response;
+
     } catch (error) {
-      lastError = error;
       const status = error.response?.status;
 
-      // ✅ تفاصيل الخطأ للـ debug
       logger.error('🔍 تفاصيل الخطأ', {
         status,
-        data  : JSON.stringify(error.response?.data)?.substring(0, 300),
-        model : CONFIG.model,
-        url   : error.config?.url,
+        model,
+        data: JSON.stringify(error.response?.data)?.substring(0, 200),
       });
 
+      // ✅ أخطاء لا تستحق إعادة المحاولة
       if (status === 401 || status === 403 || status === 400) {
-        logger.error(`❌ خطأ (${status}) - لا إعادة محاولة`);
         throw error;
       }
 
-      if (attempt < maxRetries) {
-        const waitMs = CONFIG.retryDelay * Math.pow(2, attempt - 1);
-        logger.warn(`⚠️ محاولة ${attempt}/${maxRetries} - انتظار ${waitMs}ms`);
+      // ✅ 429 = تجاوز الحصة - انتظر وقت أطول
+      if (status === 429) {
+        if (attempt < CONFIG.maxRetries) {
+          const waitMs = CONFIG.retryDelay * attempt; // 30s, 60s
+          logger.warn(`⚠️ ${model}: تجاوز الحصة - انتظار ${waitMs / 1000}s (محاولة ${attempt}/${CONFIG.maxRetries})`);
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        // ✅ رمي خطأ خاص بـ 429 ليتم التعامل معه في الـ fallback
+        const err = new Error(`QUOTA_EXCEEDED:${model}`);
+        err.isQuotaError = true;
+        throw err;
+      }
+
+      // ✅ أخطاء شبكة - انتظر قليلاً
+      if (attempt < CONFIG.maxRetries) {
+        const waitMs = 3000 * attempt;
+        logger.warn(`⚠️ ${model}: محاولة ${attempt}/${CONFIG.maxRetries} - انتظار ${waitMs}ms`);
         await new Promise(r => setTimeout(r, waitMs));
+      } else {
+        throw error;
       }
     }
   }
-
-  throw lastError;
 }
 
 // ============================
-// ✅ استخراج JSON من النص
+// ✅ استخراج JSON
 // ============================
 function extractJSON(text) {
   if (!text || typeof text !== 'string') {
@@ -441,24 +462,16 @@ function extractJSON(text) {
 
   const trimmed = text.trim();
 
-  if (trimmed.startsWith('{')) {
-    return JSON.parse(trimmed);
-  }
+  if (trimmed.startsWith('{')) return JSON.parse(trimmed);
 
   const jsonBlock = trimmed.match(/```json\s*([\s\S]*?)\s*```/);
-  if (jsonBlock) {
-    return JSON.parse(jsonBlock[1].trim());
-  }
+  if (jsonBlock) return JSON.parse(jsonBlock[1].trim());
 
   const codeBlock = trimmed.match(/```\s*([\s\S]*?)\s*```/);
-  if (codeBlock) {
-    return JSON.parse(codeBlock[1].trim());
-  }
+  if (codeBlock) return JSON.parse(codeBlock[1].trim());
 
   const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
-  }
+  if (jsonMatch) return JSON.parse(jsonMatch[0]);
 
   throw new SyntaxError('لا يمكن استخراج JSON من الاستجابة');
 }
@@ -469,15 +482,9 @@ function extractJSON(text) {
 function validateContentData(data) {
   const errors = [];
 
-  if (!data.title || typeof data.title !== 'string') {
-    errors.push('title مفقود أو غير صالح');
-  }
-  if (!data.hook || typeof data.hook !== 'string') {
-    errors.push('hook مفقود أو غير صالح');
-  }
-  if (!data.cta || typeof data.cta !== 'string') {
-    errors.push('cta مفقود أو غير صالح');
-  }
+  if (!data.title || typeof data.title !== 'string') errors.push('title مفقود');
+  if (!data.hook  || typeof data.hook  !== 'string') errors.push('hook مفقود');
+  if (!data.cta   || typeof data.cta   !== 'string') errors.push('cta مفقود');
 
   if (!Array.isArray(data.segments)) {
     errors.push('segments يجب أن يكون array');
@@ -485,11 +492,9 @@ function validateContentData(data) {
     errors.push(`segments أقل من ${CONFIG.content.minSegments}`);
   } else if (data.segments.length > CONFIG.content.maxSegments) {
     data.segments = data.segments.slice(0, CONFIG.content.maxSegments);
-    logger.warn(`⚠️ تم قص segments إلى ${CONFIG.content.maxSegments}`);
   }
 
   if (!Array.isArray(data.keywords) || data.keywords.length < CONFIG.content.minKeywords) {
-    logger.warn('⚠️ keywords ناقصة');
     data.keywords = data.keywords || [data.title || 'general'];
   }
 
@@ -498,18 +503,17 @@ function validateContentData(data) {
   }
 
   if (errors.length > 0) {
-    throw new Error(`❌ المحتوى غير صالح:\n${errors.map(e => `  - ${e}`).join('\n')}`);
+    throw new Error(`❌ المحتوى غير صالح: ${errors.join(', ')}`);
   }
 
   return data;
 }
 
 // ============================
-// ✅ الدالة الرئيسية - Gemini API
+// ✅ الدالة الرئيسية مع Fallback
 // ============================
 export async function generateEngagingContent(language, contentType, topic) {
   logger.info(`🎬 توليد محتوى: ${contentType} | ${language} | "${topic}"`);
-  logger.info(`🤖 النموذج: ${CONFIG.model}`);
 
   const { apiKey, apiUrl } = getApiConfig();
 
@@ -521,67 +525,68 @@ export async function generateEngagingContent(language, contentType, topic) {
     );
   }
 
-  // ✅ بناء الـ prompt الكامل لـ Gemini
   const fullPrompt = `${template.systemPrompt}\n\n${template.userPrompt(topic)}`;
 
-  // ✅ استدعاء Gemini API
-  const response = await withRetry(async () => {
-    return axios.post(
-      `${apiUrl}/models/${CONFIG.model}:generateContent?key=${apiKey}`,
-      {
-        contents: [
-          {
-            parts: [
-              { text: fullPrompt }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature    : 0.85,
-          maxOutputTokens: 3000,
-          topP           : 0.95,
-          responseMimeType: 'application/json', // ✅ إجبار Gemini على JSON
-        },
-      },
-      {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: CONFIG.timeoutMs,
+  // ✅ جرب كل نموذج واحداً تلو الآخر
+  for (const model of CONFIG.models) {
+    try {
+      logger.info(`🤖 جرب النموذج: ${model}`);
+
+      const response = await callGeminiModel(model, fullPrompt, apiKey, apiUrl);
+
+      const rawContent = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawContent) {
+        logger.warn(`⚠️ ${model}: استجابة فارغة - جرب التالي`);
+        continue;
       }
-    );
-  });
 
-  // ✅ استخراج النص من Gemini response
-  const rawContent = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!rawContent) {
-    throw new Error('❌ Gemini API رجع استجابة فارغة أو بتركيبة غير متوقعة');
+      let contentData;
+      try {
+        contentData = extractJSON(rawContent);
+      } catch (parseError) {
+        logger.warn(`⚠️ ${model}: JSON غير صالح - جرب التالي`);
+        continue;
+      }
+
+      const validatedContent = validateContentData(contentData);
+
+      logger.success(`✅ تم التوليد بنجاح`, {
+        model,
+        title   : validatedContent.title,
+        segments: validatedContent.segments.length,
+        keywords: validatedContent.keywords.length,
+        language,
+      });
+
+      return validatedContent;
+
+    } catch (error) {
+      // ✅ 429 = جرب النموذج التالي
+      if (error.isQuotaError) {
+        logger.warn(`⚠️ ${model}: تجاوز الحصة - جرب النموذج التالي`);
+        continue;
+      }
+
+      // ✅ أخطاء 401/403 = توقف فوراً
+      const status = error.response?.status;
+      if (status === 401 || status === 403) {
+        logger.error(`❌ خطأ في المصادقة (${status}) - تحقق من GEMINI_API_KEY`);
+        throw error;
+      }
+
+      // ✅ أخطاء أخرى = جرب التالي
+      logger.warn(`⚠️ ${model}: فشل (${error.message}) - جرب التالي`);
+      continue;
+    }
   }
 
-  logger.debug(`📥 Raw response: ${rawContent.length} chars`);
-
-  // ✅ استخراج JSON
-  let contentData;
-  try {
-    contentData = extractJSON(rawContent);
-  } catch (parseError) {
-    logger.error('❌ فشل تحليل JSON', {
-      error  : parseError.message,
-      preview: rawContent.substring(0, 200),
-    });
-    throw new Error(`❌ Gemini لم يرجع JSON صالح: ${parseError.message}`);
-  }
-
-  // ✅ التحقق من المحتوى
-  const validatedContent = validateContentData(contentData);
-
-  logger.success(`✅ تم توليد المحتوى`, {
-    title   : validatedContent.title,
-    segments: validatedContent.segments.length,
-    keywords: validatedContent.keywords.length,
-    language,
-    model   : CONFIG.model,
-  });
-
-  return validatedContent;
+  // ✅ كل النماذج فشلت
+  throw new Error(
+    `❌ جميع النماذج فشلت!\n` +
+    `النماذج المجربة: ${CONFIG.models.join(', ')}\n` +
+    `السبب: تجاوز الحصة أو خطأ في الشبكة\n` +
+    `الحل: انتظر دقيقة وأعد المحاولة`
+  );
 }
 
 // ============================
