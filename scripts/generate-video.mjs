@@ -26,10 +26,10 @@ const CONFIG = {
   videoQuality: process.env.VIDEO_QUALITY || '1080p',
 };
 
-// ✅ المفاتيح المطلوبة - محدّثة
+// ✅ المفاتيح المطلوبة
 const REQUIRED_ENV_KEYS = [
-  'GROQ_API_KEY',   // ✅ لتوليد النصوص
-  'GEMINI_API_KEY', // ✅ لتوليد الصوت
+  'GROQ_API_KEY',   // لتوليد النصوص
+  'GEMINI_API_KEY', // لتوليد الصوت
 ];
 
 // ============================
@@ -87,7 +87,33 @@ function validateContent(content) {
     throw new Error('❌ keywords يجب أن يكون array غير فارغ');
   }
 
-  logger.success(`✅ المحتوى سليم - ${content.segments.length} مقاطع`);
+  // ✅ حساب الطول الفعلي
+  const fullText  = content.segments.join(' ');
+  const wordCount = fullText.trim().split(/\s+/).filter(w => w).length;
+
+  // ✅ سرعة القراءة حسب اللغة
+  const wpsMap = { ar: 2.0, en: 2.5, fr: 2.3 };
+  const wps    = wpsMap[CONFIG.language] || 2.5;
+  const duration = Math.round(wordCount / wps);
+
+  logger.success(`✅ المحتوى سليم`, {
+    segments: content.segments.length,
+    words   : wordCount,
+    duration: `~${duration}s`,
+    status  : duration < 40 ? '⚠️ قصير' : duration > 80 ? '⚠️ طويل' : '✅ مثالي',
+  });
+
+  // ✅ تحذير إذا كان قصيراً
+  if (duration < 40) {
+    logger.warn(
+      `⚠️ تحذير: النص قصير جداً!\n` +
+      `   المدة المتوقعة: ${duration}s (الحد الأدنى: 40s)\n` +
+      `   عدد الكلمات: ${wordCount}\n` +
+      `   يُنصح بإعادة التوليد`
+    );
+  }
+
+  return { wordCount, duration };
 }
 
 // ============================
@@ -125,7 +151,15 @@ function validateAudio(audioPath) {
     throw new Error(`❌ ملف الصوت فارغ: ${audioPath}`);
   }
 
-  logger.success(`✅ الصوت جاهز: ${audioPath} (${(stats.size / 1024).toFixed(1)} KB)`);
+  // ✅ تقدير مدة الصوت من الحجم
+  // WAV: ~48KB/ثانية عند 24000Hz 16bit mono
+  const estimatedDuration = Math.round(stats.size / 48000);
+
+  logger.success(`✅ الصوت جاهز`, {
+    path    : audioPath,
+    size    : `${(stats.size / 1024).toFixed(1)} KB`,
+    duration: `~${estimatedDuration}s`,
+  });
 }
 
 // ============================
@@ -162,7 +196,9 @@ async function main() {
       CONFIG.contentType,
       CONFIG.mainTopic
     );
-    validateContent(content);
+
+    // ✅ التحقق مع الحصول على إحصائيات الطول
+    const { wordCount, duration } = validateContent(content);
 
     // ✅ 2: البحث عن الفيديوهات
     logger.section('🎥 الخطوة 2: البحث عن الفيديوهات');
@@ -179,6 +215,8 @@ async function main() {
       throw new Error('❌ النص الكامل فارغ بعد دمج المقاطع');
     }
 
+    logger.info(`📝 طول النص الكامل: ${fullScript.length} حرف | ${wordCount} كلمة | ~${duration}s`);
+
     const audioPath = await generateAudio(fullScript, CONFIG.language);
     validateAudio(audioPath);
 
@@ -186,7 +224,7 @@ async function main() {
     logger.section('🎵 الخطوة 4: اختيار الموسيقى');
     const musicMood = getMusicMoodForContentType(CONFIG.contentType);
     const musicUrl  = await getMusicUrl(musicMood);
-    logger.info(`🎵 المود: ${musicMood}`);
+    logger.info(`🎵 المود : ${musicMood}`);
     logger.info(`🔗 الرابط: ${musicUrl}`);
 
     // ✅ 5: حفظ البيانات
@@ -198,6 +236,10 @@ async function main() {
       keywords          : content.keywords,
       cta               : content.cta,
       emotional_triggers: content.emotional_triggers || [],
+
+      // ✅ إحصائيات الطول
+      word_count                : wordCount,
+      estimated_duration_seconds: duration,
 
       // الميديا
       videos   : videos,
@@ -218,14 +260,21 @@ async function main() {
     const propsPath = saveResults(inputProps);
 
     // ✅ ملخص نهائي
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const elapsed     = ((Date.now() - startTime) / 1000).toFixed(1);
+    const audioStats  = fs.statSync(audioPath);
+    const audioDur    = Math.round(audioStats.size / 48000);
+
     logger.section('✨ اكتمل التوليد بنجاح!');
-    logger.info(`⏱️  الوقت   : ${elapsed} ثانية`);
-    logger.info(`📁 المجلد  : ${OUTPUT_DIR}`);
-    logger.info(`📄 البيانات: ${propsPath}`);
-    logger.info(`🎙️  الصوت   : ${audioPath}`);
-    logger.info(`🎥 فيديوهات: ${videos.length} مقطع`);
-    logger.info(`🎵 موسيقى  : ${musicUrl}`);
+    logger.info(`⏱️  وقت المعالجة  : ${elapsed} ثانية`);
+    logger.info(`📝 كلمات النص    : ${wordCount} كلمة`);
+    logger.info(`🎙️  مدة الصوت     : ~${audioDur}s`);
+    logger.info(`📊 الهدف         : 40-80 ثانية`);
+    logger.info(`✅ الحالة        : ${audioDur < 40 ? '⚠️ قصير' : audioDur > 80 ? '⚠️ طويل' : '✅ مثالي'}`);
+    logger.info(`📁 المجلد        : ${OUTPUT_DIR}`);
+    logger.info(`📄 البيانات      : ${propsPath}`);
+    logger.info(`🎙️  الصوت         : ${audioPath}`);
+    logger.info(`🎥 فيديوهات      : ${videos.length} مقطع`);
+    logger.info(`🎵 موسيقى        : ${musicUrl}`);
 
   } catch (error) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
