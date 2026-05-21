@@ -1,24 +1,17 @@
 {
   "name": "video-gen-pro-2026",
   "version": "2.0.0",
-  "description": "Professional AI-powered video generation with advanced editing",
+  "description": "Professional AI-powered video generation",
   "type": "module",
-  "main": "dist/index.js",
   "scripts": {
-    "dev": "vite --host",
-    "build": "vite build",
-    "start": "node dist/index.js",
-    "generate-ar": "LANGUAGE=ar CONTENT_TYPE=Motivational MAIN_TOPIC='النجاح والإصرار' node scripts/generate-video.mjs",
-    "generate-en": "LANGUAGE=en CONTENT_TYPE=Motivational MAIN_TOPIC='Success and Determination' node scripts/generate-video.mjs",
-    "generate-fr": "LANGUAGE=fr CONTENT_TYPE=Motivational MAIN_TOPIC='Succès et Détermination' node scripts/generate-video.mjs",
+    "generate-ar": "LANGUAGE=ar node scripts/generate-video.mjs",
+    "generate-en": "LANGUAGE=en node scripts/generate-video.mjs",
+    "generate-fr": "LANGUAGE=fr node scripts/generate-video.mjs",
     "generate-all": "node scripts/generate-all.mjs",
     "test": "node scripts/test-apis.mjs"
   },
   "dependencies": {
     "axios": "^1.6.0",
     "dotenv": "^16.3.1"
-  },
-  "devDependencies": {
-    "vite": "^7.1.7"
   }
 }
