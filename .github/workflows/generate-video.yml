@@ -44,6 +44,8 @@ jobs:
   create-lockfile:
     name: 🔒 Create package-lock.json
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: 📥 Checkout code
@@ -117,6 +119,8 @@ jobs:
           echo "🎯 Topic        : ${{ github.event.inputs.main_topic }}"
           echo "📺 Quality      : ${{ github.event.inputs.video_quality }}"
           echo "🌍 Languages    : ${{ github.event.inputs.languages }}"
+          echo "🤖 Text Model   : Groq (LLaMA)"
+          echo "🎙️  Audio Model  : Gemini TTS"
           echo "════════════════════════════════════════"
 
   # ============================================
@@ -172,9 +176,9 @@ jobs:
           CONTENT_TYPE=${{ github.event.inputs.content_type }}
           MAIN_TOPIC=${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY=${{ github.event.inputs.video_quality }}
-          GROK_API_KEY=${{ secrets.GROK_API_KEY }}
-          GROK_API_URL=https://api.x.ai/v1
-          GROK_MODEL=grok-3
+          GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
+          GROQ_API_URL=https://api.groq.com/openai/v1
+          GROQ_FALLBACK_MODELS=llama-3.3-70b-versatile,llama-3.1-8b-instant,gemma2-9b-it
           GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
           GOOGLE_TTS_URL=https://texttospeech.googleapis.com/v1
           PIXABAY_API_KEY=${{ secrets.PIXABAY_API_KEY }}
@@ -200,9 +204,9 @@ jobs:
           CONTENT_TYPE: ${{ github.event.inputs.content_type }}
           MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          GROK_API_URL: https://api.x.ai/v1
-          GROK_MODEL: grok-3
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_URL: https://api.groq.com/openai/v1
+          GROQ_FALLBACK_MODELS: llama-3.3-70b-versatile,llama-3.1-8b-instant,gemma2-9b-it
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_TTS_URL: https://texttospeech.googleapis.com/v1
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
@@ -247,30 +251,31 @@ jobs:
       - name: 📝 Success summary
         if: success()
         run: |
-          echo "## ✅ تم التوليد بنجاح" >> $GITHUB_STEP_SUMMARY
-          echo ""                                                           >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 التفاصيل"                                           >> $GITHUB_STEP_SUMMARY
-          echo "- **اللغة**    : ${{ matrix.language }}"                   >> $GITHUB_STEP_SUMMARY
-          echo "- **النوع**    : ${{ github.event.inputs.content_type }}"  >> $GITHUB_STEP_SUMMARY
-          echo "- **الموضوع**  : ${{ github.event.inputs.main_topic }}"    >> $GITHUB_STEP_SUMMARY
-          echo "- **الجودة**   : ${{ github.event.inputs.video_quality }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **الوقت**    : ${{ steps.generate.outputs.timestamp }}"  >> $GITHUB_STEP_SUMMARY
-          echo ""                                                           >> $GITHUB_STEP_SUMMARY
-          echo "### 📁 الملفات"                                            >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/input-props-${{ matrix.language }}.json\`"      >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/audio-${{ matrix.language }}.wav\`"             >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/metadata-${{ matrix.language }}.json\`"         >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ تم التوليد بنجاح"                                                    >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                            >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 التفاصيل"                                                            >> $GITHUB_STEP_SUMMARY
+          echo "- **اللغة**    : ${{ matrix.language }}"                                    >> $GITHUB_STEP_SUMMARY
+          echo "- **النوع**    : ${{ github.event.inputs.content_type }}"                   >> $GITHUB_STEP_SUMMARY
+          echo "- **الموضوع**  : ${{ github.event.inputs.main_topic }}"                     >> $GITHUB_STEP_SUMMARY
+          echo "- **الجودة**   : ${{ github.event.inputs.video_quality }}"                  >> $GITHUB_STEP_SUMMARY
+          echo "- **الوقت**    : ${{ steps.generate.outputs.timestamp }}"                   >> $GITHUB_STEP_SUMMARY
+          echo "- **النموذج**  : Groq LLaMA + Gemini TTS"                                  >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                            >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 الملفات"                                                             >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/input-props-${{ matrix.language }}.json\`"                       >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/audio-${{ matrix.language }}.wav\`"                              >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/metadata-${{ matrix.language }}.json\`"                          >> $GITHUB_STEP_SUMMARY
 
       - name: ❌ Failure summary
         if: failure()
         run: |
-          echo "## ❌ فشل التوليد"                          >> $GITHUB_STEP_SUMMARY
-          echo ""                                            >> $GITHUB_STEP_SUMMARY
-          echo "### 🔍 خطوات الإصلاح"                       >> $GITHUB_STEP_SUMMARY
-          echo "1. تحقق من API keys في GitHub Secrets"      >> $GITHUB_STEP_SUMMARY
-          echo "2. تحقق من حصص الـ APIs"                   >> $GITHUB_STEP_SUMMARY
-          echo "3. راجع الـ logs في الـ artifacts"          >> $GITHUB_STEP_SUMMARY
-          echo "4. تأكد من صحة الـ dependencies"            >> $GITHUB_STEP_SUMMARY
+          echo "## ❌ فشل التوليد"                               >> $GITHUB_STEP_SUMMARY
+          echo ""                                                 >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 خطوات الإصلاح"                            >> $GITHUB_STEP_SUMMARY
+          echo "1. تحقق من GROQ_API_KEY في GitHub Secrets"       >> $GITHUB_STEP_SUMMARY
+          echo "2. تحقق من GEMINI_API_KEY في GitHub Secrets"     >> $GITHUB_STEP_SUMMARY
+          echo "3. تحقق من PIXABAY_API_KEY في GitHub Secrets"    >> $GITHUB_STEP_SUMMARY
+          echo "4. راجع الـ logs في الـ artifacts"               >> $GITHUB_STEP_SUMMARY
 
   # ============================================
   # Job 4: التجميع النهائي
@@ -289,21 +294,22 @@ jobs:
 
       - name: 📊 Generate final report
         run: |
-          echo "## 🎬 تقرير التوليد النهائي"                                                                                                >> $GITHUB_STEP_SUMMARY
-          echo ""                                                                                                                             >> $GITHUB_STEP_SUMMARY
+          echo "## 🎬 تقرير التوليد النهائي"                                                                                                 >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                                                              >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "**Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"                                                                         >> $GITHUB_STEP_SUMMARY
-          echo ""                                                                                                                             >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 الإعدادات"                                                                                                            >> $GITHUB_STEP_SUMMARY
-          echo "- النوع    : ${{ github.event.inputs.content_type }}"                                                                        >> $GITHUB_STEP_SUMMARY
-          echo "- الموضوع  : ${{ github.event.inputs.main_topic }}"                                                                          >> $GITHUB_STEP_SUMMARY
-          echo "- الجودة   : ${{ github.event.inputs.video_quality }}"                                                                       >> $GITHUB_STEP_SUMMARY
-          echo "- اللغات   : ${{ github.event.inputs.languages }}"                                                                           >> $GITHUB_STEP_SUMMARY
-          echo ""                                                                                                                             >> $GITHUB_STEP_SUMMARY
-          echo "### 📁 الملفات المولدة"                                                                                                      >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`"                                                                                                                       >> $GITHUB_STEP_SUMMARY
-          find all-outputs -type f | sort                                                                                                     >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`"                                                                                                                       >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"                                                                          >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                                                              >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 الإعدادات"                                                                                                             >> $GITHUB_STEP_SUMMARY
+          echo "- النوع    : ${{ github.event.inputs.content_type }}"                                                                         >> $GITHUB_STEP_SUMMARY
+          echo "- الموضوع  : ${{ github.event.inputs.main_topic }}"                                                                           >> $GITHUB_STEP_SUMMARY
+          echo "- الجودة   : ${{ github.event.inputs.video_quality }}"                                                                        >> $GITHUB_STEP_SUMMARY
+          echo "- اللغات   : ${{ github.event.inputs.languages }}"                                                                            >> $GITHUB_STEP_SUMMARY
+          echo "- النماذج  : Groq LLaMA (نصوص) + Gemini TTS (صوت)"                                                                          >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                                                              >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 الملفات المولدة"                                                                                                       >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`"                                                                                                                        >> $GITHUB_STEP_SUMMARY
+          find all-outputs -type f | sort                                                                                                      >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`"                                                                                                                        >> $GITHUB_STEP_SUMMARY
 
       - name: 📤 Upload final report
         uses: actions/upload-artifact@v4
@@ -318,8 +324,9 @@ jobs:
           echo "════════════════════════════════════════"
           echo "✅ تم توليد جميع الفيديوهات بنجاح!"
           echo "════════════════════════════════════════"
+          echo "🤖 النصوص: Groq LLaMA-3.3-70b"
+          echo "🎙️  الصوت: Gemini TTS"
           echo "📊 راجع الـ artifacts للملفات"
-          echo "📝 راجع الـ logs للتفاصيل"
           echo "════════════════════════════════════════"
 
       - name: ⚠️ Failure notification
@@ -329,5 +336,8 @@ jobs:
           echo "⚠️ فشل بعض الفيديوهات"
           echo "════════════════════════════════════════"
           echo "🔍 راجع الـ logs للتفاصيل"
-          echo "📋 تحقق من إعدادات الـ API"
+          echo "📋 تحقق من GitHub Secrets:"
+          echo "   - GROQ_API_KEY"
+          echo "   - GEMINI_API_KEY"
+          echo "   - PIXABAY_API_KEY"
           echo "════════════════════════════════════════"
