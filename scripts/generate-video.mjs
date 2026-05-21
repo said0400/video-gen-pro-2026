@@ -28,7 +28,7 @@ const CONFIG = {
 
 // ✅ المفاتيح المطلوبة - محدّثة
 const REQUIRED_ENV_KEYS = [
-  'GEMINI_API_KEY_1', // لتوليد النصوص
+  'DEEPSEEK_API_KEY', // لتوليد النصوص
   'GEMINI_API_KEY_2', // لتوليد الصوت
 ];
 
@@ -87,11 +87,9 @@ function validateContent(content) {
     throw new Error('❌ keywords يجب أن يكون array غير فارغ');
   }
 
-  // ✅ حساب الطول الفعلي
   const fullText  = content.segments.join(' ');
   const wordCount = fullText.trim().split(/\s+/).filter(w => w).length;
 
-  // ✅ سرعة القراءة حسب اللغة
   const wpsMap   = { ar: 2.0, en: 2.5, fr: 2.3 };
   const wps      = wpsMap[CONFIG.language] || 2.5;
   const duration = Math.round(wordCount / wps);
@@ -107,8 +105,7 @@ function validateContent(content) {
     logger.warn(
       `⚠️ تحذير: النص قصير جداً!\n` +
       `   المدة المتوقعة: ${duration}s (الحد الأدنى: 40s)\n` +
-      `   عدد الكلمات: ${wordCount}\n` +
-      `   يُنصح بإعادة التوليد`
+      `   عدد الكلمات: ${wordCount}`
     );
   }
 
@@ -181,15 +178,15 @@ async function main() {
     logger.info(`🎯 الموضوع   : ${CONFIG.mainTopic}`);
     logger.info(`📺 الجودة    : ${CONFIG.videoQuality}`);
     logger.info(`🌍 اللغة     : ${CONFIG.language}`);
-    logger.info(`🔑 النصوص    : GEMINI_API_KEY_1`);
+    logger.info(`🔑 النصوص    : DeepSeek API`);
     logger.info(`🔑 الصوت     : GEMINI_API_KEY_2`);
 
     // ✅ 0: التحقق من البيئة
     validateEnvironment();
     ensureDirectories();
 
-    // ✅ 1: توليد المحتوى بـ Gemini (مفتاح 1)
-    logger.section('📝 الخطوة 1: توليد المحتوى (Gemini API Key 1)');
+    // ✅ 1: توليد المحتوى بـ DeepSeek
+    logger.section('📝 الخطوة 1: توليد المحتوى (DeepSeek)');
     const content = await generateEngagingContent(
       CONFIG.language,
       CONFIG.contentType,
@@ -203,7 +200,7 @@ async function main() {
     const rawVideos = await searchAllVideos(content.keywords);
     const videos    = validateVideos(rawVideos);
 
-    // ✅ 3: توليد الصوت بـ Gemini TTS (مفتاح 2)
+    // ✅ 3: توليد الصوت بـ Gemini TTS
     logger.section('🎙️ الخطوة 3: توليد الصوت (Gemini TTS - API Key 2)');
     const fullScript = content.segments
       .filter(s => typeof s === 'string' && s.trim())
