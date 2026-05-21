@@ -8,15 +8,14 @@ dotenv.config();
 // ✅ الإعدادات
 // ============================
 const CONFIG = {
-  // ✅ أسماء النماذج الصحيحة
   models: (process.env.GEMINI_TEXT_MODELS ||
-    'gemini-2.0-flash,gemini-2.0-flash-lite,gemini-1.5-flash-latest,gemini-1.5-pro-latest')
+    'gemini-2.0-flash,gemini-2.0-flash-lite')
     .split(',')
     .map(m => m.trim()),
 
-  timeoutMs  : 60000,
-  maxRetries : 3,
-  retryDelay : 60000, // ✅ 60 ثانية عند 429
+  timeoutMs  : 120000, // ✅ دقيقتان - لأن الطلب أكبر
+  maxRetries : 2,
+  retryDelay : 60000,
 
   content: {
     minSegments        : 5,
@@ -24,7 +23,6 @@ const CONFIG = {
     minKeywords        : 3,
     minDurationSeconds : 40,
     maxDurationSeconds : 80,
-
     wordsPerSecond: {
       ar: 2.0,
       en: 2.5,
@@ -33,331 +31,146 @@ const CONFIG = {
   },
 };
 
-// ============================
-// ✅ حساب عدد الكلمات المطلوبة
-// ============================
 function getWordCountGuide(language) {
   const wps    = CONFIG.content.wordsPerSecond[language] || 2.5;
   const minWds = Math.round(CONFIG.content.minDurationSeconds * wps);
   const maxWds = Math.round(CONFIG.content.maxDurationSeconds * wps);
-  return { minWds, maxWds, wps };
+  return { minWds, maxWds };
 }
 
-// ============================
-// ✅ التحقق من متغيرات البيئة
-// ============================
 function getApiConfig() {
   const apiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY;
   const apiUrl = process.env.GEMINI_API_URL ||
     'https://generativelanguage.googleapis.com/v1beta';
 
   if (!apiKey || apiKey === 'undefined' || apiKey.trim() === '') {
-    throw new Error(
-      '❌ GEMINI_API_KEY_1 غير موجود\n' +
-      'احصل على مفتاحك من: https://aistudio.google.com/'
-    );
+    throw new Error('❌ GEMINI_API_KEY_1 غير موجود');
   }
 
   return { apiKey, apiUrl };
 }
 
 // ============================
-// ✅ القوالب - System Prompts
+// ✅ Prompt واحد يطلب 3 لغات معاً
 // ============================
-const SYSTEM_PROMPTS = {
-  Motivational: {
-    ar: `أنت كاتب محتوى تحفيزي عربي محترف متخصص في كتابة نصوص فيديو قصيرة ومؤثرة.
+function buildTrilingualPrompt(topic, contentType) {
+  const ar = getWordCountGuide('ar');
+  const en = getWordCountGuide('en');
+  const fr = getWordCountGuide('fr');
 
-قواعد صارمة يجب اتباعها:
-1. النص يجب أن يكون بين 80 و 160 كلمة عربية (يعادل 40-80 ثانية قراءة)
-2. كل مقطع يجب أن يحتوي على 15-30 كلمة
-3. لا تكتب مقاطع قصيرة أبداً - كل مقطع جملة كاملة ومعبرة
-4. استخدم لغة قوية ومؤثرة تلامس القلب
-5. أضف تفاصيل وأمثلة حقيقية تجعل النص غنياً
-6. النص يجب أن يقدم قيمة حقيقية للمشاهد`,
-
-    en: `You are a professional English motivational content writer specialized in video scripts.
-
-Strict rules:
-1. Text must be between 100 and 200 English words (equals 40-80 seconds reading)
-2. Each segment must contain 20-35 words
-3. Never write short segments - each must be a complete, meaningful sentence
-4. Use powerful, impactful language that touches the heart
-5. Add real details and examples to enrich the content
-6. Content must provide genuine value to the viewer`,
-
-    fr: `Vous êtes un rédacteur professionnel de contenu motivationnel en français spécialisé dans les scripts vidéo.
-
-Règles strictes:
-1. Le texte doit contenir entre 90 et 185 mots français (équivaut à 40-80 secondes de lecture)
-2. Chaque segment doit contenir 18-32 mots
-3. Ne jamais écrire de segments courts
-4. Utilisez un langage puissant et percutant
-5. Ajoutez des détails et des exemples réels
-6. Le contenu doit apporter une valeur réelle au spectateur`,
-  },
-
-  Educational: {
-    ar: `أنت معلم ومحاضر عربي محترف متخصص في كتابة محتوى تعليمي للفيديو.
-
-قواعد صارمة:
-1. النص بين 80 و 160 كلمة عربية (40-80 ثانية)
-2. كل مقطع 15-30 كلمة
-3. اشرح بوضوح وعمق مع أمثلة واقعية
-4. استخدم أسلوباً سهلاً ومشوقاً`,
-
-    en: `You are a professional English educational content creator for video.
-
-Strict rules:
-1. Text between 100 and 200 words (40-80 seconds)
-2. Each segment 20-35 words
-3. Explain clearly with real examples
-4. Use engaging, accessible style`,
-
-    fr: `Vous êtes un créateur professionnel de contenu éducatif en français pour vidéo.
-
-Règles strictes:
-1. Texte entre 90 et 185 mots (40-80 secondes)
-2. Chaque segment 18-32 mots
-3. Expliquez clairement avec des exemples réels
-4. Style engageant et accessible`,
-  },
-
-  Story: {
-    ar: `أنت راوي قصص عربي محترف متخصص في كتابة قصص للفيديو.
-
-قواعد صارمة:
-1. النص بين 80 و 160 كلمة عربية (40-80 ثانية)
-2. كل مقطع 15-30 كلمة
-3. ابنِ التوتر تدريجياً وأضف تفاصيل مؤثرة
-4. اجعل المشاهد يشعر بالقصة`,
-
-    en: `You are a professional English storyteller for video.
-
-Strict rules:
-1. Text between 100 and 200 words (40-80 seconds)
-2. Each segment 20-35 words
-3. Build tension gradually with impactful details
-4. Make the viewer feel the story`,
-
-    fr: `Vous êtes un conteur professionnel en français pour vidéo.
-
-Règles strictes:
-1. Texte entre 90 et 185 mots (40-80 secondes)
-2. Chaque segment 18-32 mots
-3. Construisez la tension progressivement
-4. Faites ressentir l'histoire au spectateur`,
-  },
-
-  News: {
-    ar: `أنت مذيع أخبار عربي محترف متخصص في كتابة نصوص إخبارية للفيديو.
-
-قواعد صارمة:
-1. النص بين 80 و 160 كلمة عربية (40-80 ثانية)
-2. كل مقطع 15-30 كلمة
-3. ابدأ بالخبر الأبرز وأضف السياق والتحليل
-4. أسلوب موضوعي ومهني`,
-
-    en: `You are a professional English news anchor for video.
-
-Strict rules:
-1. Text between 100 and 200 words (40-80 seconds)
-2. Each segment 20-35 words
-3. Start with breaking news, add context and analysis
-4. Objective and professional style`,
-
-    fr: `Vous êtes un présentateur de nouvelles professionnel en français pour vidéo.
-
-Règles strictes:
-1. Texte entre 90 et 185 mots (40-80 secondes)
-2. Chaque segment 18-32 mots
-3. Commencez par les nouvelles importantes
-4. Style objectif et professionnel`,
-  },
-
-  Tech: {
-    ar: `أنت خبير تقنية عربي محترف متخصص في شرح التكنولوجيا للفيديو.
-
-قواعد صارمة:
-1. النص بين 80 و 160 كلمة عربية (40-80 ثانية)
-2. كل مقطع 15-30 كلمة
-3. اشرح بأمثلة يومية مبسطة وعملية
-4. أبرز الفوائد الحقيقية للمشاهد`,
-
-    en: `You are a professional English tech expert for video.
-
-Strict rules:
-1. Text between 100 and 200 words (40-80 seconds)
-2. Each segment 20-35 words
-3. Explain with simple, practical daily examples
-4. Highlight real benefits for the viewer`,
-
-    fr: `Vous êtes un expert tech professionnel en français pour vidéo.
-
-Règles strictes:
-1. Texte entre 90 et 185 mots (40-80 secondes)
-2. Chaque segment 18-32 mots
-3. Expliquez avec des exemples quotidiens simples
-4. Mettez en évidence les avantages réels`,
-  },
-
-  Lifestyle: {
-    ar: `أنت مؤثر في مجال نمط الحياة متخصص في كتابة محتوى للفيديو.
-
-قواعد صارمة:
-1. النص بين 80 و 160 كلمة عربية (40-80 ثانية)
-2. كل مقطع 15-30 كلمة
-3. كن صادقاً وقريباً من المشاهد
-4. شارك نصائح عملية وقابلة للتطبيق فوراً`,
-
-    en: `You are a professional English lifestyle influencer for video.
-
-Strict rules:
-1. Text between 100 and 200 words (40-80 seconds)
-2. Each segment 20-35 words
-3. Be authentic and relatable
-4. Share practical, immediately applicable tips`,
-
-    fr: `Vous êtes un influenceur lifestyle professionnel en français pour vidéo.
-
-Règles strictes:
-1. Texte entre 90 et 185 mots (40-80 secondes)
-2. Chaque segment 18-32 mots
-3. Soyez authentique et proche du spectateur
-4. Partagez des conseils pratiques et immédiatement applicables`,
-  },
-};
-
-// ============================
-// ✅ بناء User Prompt
-// ============================
-function buildUserPrompt(topic, contentType, language) {
-  const { minWds, maxWds } = getWordCountGuide(language);
-
-  const prompts = {
-    ar: `اكتب نص فيديو ${contentType} احترافي وكامل عن: "${topic}"
-
-⚠️ متطلبات الطول - هذا إلزامي:
-- الحد الأدنى: ${minWds} كلمة عربية
-- الحد الأقصى: ${maxWds} كلمة عربية
-- يعادل 40-80 ثانية قراءة بصوت طبيعي
-- كل مقطع جملة كاملة ومعبرة (15-30 كلمة)
-
-الهيكل (5 مقاطع على الأقل):
-1. HOOK (15-25 كلمة): سؤال مثير أو إحصائية صادمة
-2. المشكلة (20-30 كلمة): التحدي بتفاصيل
-3. الحل (25-35 كلمة): مع أمثلة عملية
-4. الفائدة (20-30 كلمة): كيف ستتغير الحياة
-5. CTA (15-25 كلمة): تفاعل محدد مع سبب مقنع
-
-أرجع JSON فقط:
-{
-  "title": "عنوان جذاب",
-  "hook": "جملة الجذب الأولى",
-  "segments": [
-    "مقطع 1 كامل 15-25 كلمة",
-    "مقطع 2 كامل 20-30 كلمة",
-    "مقطع 3 كامل 25-35 كلمة",
-    "مقطع 4 كامل 20-30 كلمة",
-    "مقطع 5 كامل 15-25 كلمة"
-  ],
-  "cta": "دعوة للعمل",
-  "keywords": ["كلمة1", "كلمة2", "كلمة3", "كلمة4"],
-  "emotional_triggers": ["مشاعر1", "مشاعر2"],
-  "word_count": ${minWds},
-  "estimated_duration_seconds": 60
-}`,
-
-    en: `Write a complete ${contentType} video script about: "${topic}"
-
-⚠️ Length MANDATORY:
-- Minimum: ${minWds} words
-- Maximum: ${maxWds} words
-- Each segment: complete sentence (20-35 words)
-
-Structure (5 segments minimum):
-1. HOOK (20-30 words)
-2. Problem (25-35 words)
-3. Solution (30-40 words)
-4. Benefits (25-35 words)
-5. CTA (20-30 words)
-
-Return JSON only:
-{
-  "title": "Catchy title",
-  "hook": "Opening hook",
-  "segments": [
-    "Segment 1 complete 20-30 words",
-    "Segment 2 complete 25-35 words",
-    "Segment 3 complete 30-40 words",
-    "Segment 4 complete 25-35 words",
-    "Segment 5 complete 20-30 words"
-  ],
-  "cta": "Call to action",
-  "keywords": ["k1", "k2", "k3", "k4"],
-  "emotional_triggers": ["e1", "e2"],
-  "word_count": ${minWds},
-  "estimated_duration_seconds": 60
-}`,
-
-    fr: `Écrivez un script vidéo ${contentType} complet sur: "${topic}"
-
-⚠️ Longueur OBLIGATOIRE:
-- Minimum: ${minWds} mots
-- Maximum: ${maxWds} mots
-- Chaque segment: phrase complète (18-32 mots)
-
-Structure (5 segments minimum):
-1. ACCROCHE (18-28 mots)
-2. Problème (22-32 mots)
-3. Solution (28-38 mots)
-4. Avantages (22-32 mots)
-5. APPEL À L'ACTION (18-28 mots)
-
-Retournez JSON uniquement:
-{
-  "title": "Titre accrocheur",
-  "hook": "Phrase d'accroche",
-  "segments": [
-    "Segment 1 complet 18-28 mots",
-    "Segment 2 complet 22-32 mots",
-    "Segment 3 complet 28-38 mots",
-    "Segment 4 complet 22-32 mots",
-    "Segment 5 complet 18-28 mots"
-  ],
-  "cta": "Appel à l'action",
-  "keywords": ["m1", "m2", "m3", "m4"],
-  "emotional_triggers": ["é1", "é2"],
-  "word_count": ${minWds},
-  "estimated_duration_seconds": 60
-}`,
+  const systemPrompts = {
+    Motivational: {
+      ar: `كاتب محتوى تحفيزي عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
+      en: `English motivational writer: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
+      fr: `Rédacteur motivationnel français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
+    },
+    Educational: {
+      ar: `معلم عربي محترف: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
+      en: `English educator: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
+      fr: `Éducateur français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
+    },
+    Story: {
+      ar: `راوي قصص عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
+      en: `English storyteller: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
+      fr: `Conteur français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
+    },
+    News: {
+      ar: `مذيع أخبار عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
+      en: `English news anchor: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
+      fr: `Présentateur français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
+    },
+    Tech: {
+      ar: `خبير تقنية عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
+      en: `English tech expert: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
+      fr: `Expert tech français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
+    },
+    Lifestyle: {
+      ar: `مؤثر lifestyle عربي: ${ar.minWds}-${ar.maxWds} كلمة، كل مقطع 15-30 كلمة`,
+      en: `English lifestyle influencer: ${en.minWds}-${en.maxWds} words, each segment 20-35 words`,
+      fr: `Influenceur lifestyle français: ${fr.minWds}-${fr.maxWds} mots, chaque segment 18-32 mots`,
+    },
   };
 
-  return prompts[language] || prompts['en'];
+  const sp = systemPrompts[contentType] || systemPrompts.Motivational;
+
+  return `أنت خبير في كتابة المحتوى بثلاث لغات. اكتب نص فيديو ${contentType} احترافي عن: "${topic}"
+
+⚠️ مهم جداً - اكتب 3 نصوص مختلفة في طلب واحد:
+
+=== النص العربي ===
+${sp.ar}
+القواعد: كل مقطع جملة كاملة 15-30 كلمة، لغة قوية ومؤثرة
+
+=== English Text ===
+${sp.en}
+Rules: Each segment complete sentence 20-35 words, powerful impactful language
+
+=== Texte Français ===
+${sp.fr}
+Règles: Chaque segment phrase complète 18-32 mots, langage puissant
+
+أرجع JSON واحد يحتوي على النصوص الثلاثة:
+{
+  "ar": {
+    "title": "عنوان عربي جذاب",
+    "hook": "جملة الجذب العربية",
+    "segments": [
+      "مقطع عربي 1 كامل 15-25 كلمة",
+      "مقطع عربي 2 كامل 20-30 كلمة",
+      "مقطع عربي 3 كامل 25-35 كلمة",
+      "مقطع عربي 4 كامل 20-30 كلمة",
+      "مقطع عربي 5 كامل 15-25 كلمة"
+    ],
+    "cta": "دعوة للعمل عربية",
+    "keywords": ["كلمة1", "كلمة2", "كلمة3"],
+    "emotional_triggers": ["مشاعر1", "مشاعر2"]
+  },
+  "en": {
+    "title": "Catchy English title",
+    "hook": "English opening hook",
+    "segments": [
+      "English segment 1 complete 20-30 words minimum required",
+      "English segment 2 complete 25-35 words minimum required",
+      "English segment 3 complete 30-40 words minimum required",
+      "English segment 4 complete 25-35 words minimum required",
+      "English segment 5 complete 20-30 words minimum required"
+    ],
+    "cta": "English call to action",
+    "keywords": ["k1", "k2", "k3"],
+    "emotional_triggers": ["e1", "e2"]
+  },
+  "fr": {
+    "title": "Titre français accrocheur",
+    "hook": "Phrase d'accroche française",
+    "segments": [
+      "Segment français 1 complet 18-28 mots minimum requis",
+      "Segment français 2 complet 22-32 mots minimum requis",
+      "Segment français 3 complet 28-38 mots minimum requis",
+      "Segment français 4 complet 22-32 mots minimum requis",
+      "Segment français 5 complet 18-28 mots minimum requis"
+    ],
+    "cta": "Appel à l'action français",
+    "keywords": ["m1", "m2", "m3"],
+    "emotional_triggers": ["é1", "é2"]
+  }
+}`;
 }
 
 // ============================
-// ✅ استدعاء Gemini - مع انتظار 60s عند 429
+// ✅ استدعاء Gemini
 // ============================
-async function callGeminiModel(model, systemPrompt, userPrompt, apiKey, apiUrl) {
+async function callGeminiModel(model, prompt, apiKey, apiUrl) {
   let lastError;
 
   for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
     try {
-      const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
-
       const response = await axios.post(
         `${apiUrl}/models/${model}:generateContent?key=${apiKey}`,
         {
-          contents: [
-            {
-              role : 'user',
-              parts: [{ text: fullPrompt }],
-            },
-          ],
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: {
             temperature     : 0.7,
-            maxOutputTokens : 4000,
+            maxOutputTokens : 8000, // ✅ أكبر لأن 3 لغات
             topP            : 0.9,
             responseMimeType: 'application/json',
           },
@@ -374,36 +187,26 @@ async function callGeminiModel(model, systemPrompt, userPrompt, apiKey, apiUrl) 
       lastError    = error;
       const status = error.response?.status;
 
-      logger.error('🔍 خطأ Gemini النصوص', {
-        status,
-        model,
-        attempt,
+      logger.error('🔍 خطأ Gemini', {
+        status, model, attempt,
         data: JSON.stringify(error.response?.data)?.substring(0, 200),
       });
 
       if (status === 401 || status === 403) throw error;
 
       if (status === 404) {
-        const err           = new Error(`MODEL_NOT_FOUND:${model}`);
+        const err = new Error(`MODEL_NOT_FOUND:${model}`);
         err.isModelNotFound = true;
-        throw err;
-      }
-
-      if (status === 400) {
-        const err        = new Error(`BAD_REQUEST:${model}`);
-        err.isBadRequest = true;
         throw err;
       }
 
       if (status === 429) {
         if (attempt < CONFIG.maxRetries) {
-          // ✅ انتظار تدريجي: 60s, 120s
-          const waitMs = CONFIG.retryDelay * attempt;
-          logger.warn(`⚠️ تجاوز الحصة (429) - انتظار ${waitMs / 1000}s (محاولة ${attempt}/${CONFIG.maxRetries})`);
-          await new Promise(r => setTimeout(r, waitMs));
+          logger.warn(`⚠️ 429 - انتظار ${CONFIG.retryDelay / 1000}s`);
+          await new Promise(r => setTimeout(r, CONFIG.retryDelay));
           continue;
         }
-        const err        = new Error(`QUOTA_EXCEEDED:${model}`);
+        const err = new Error(`QUOTA_EXCEEDED:${model}`);
         err.isQuotaError = true;
         throw err;
       }
@@ -421,9 +224,7 @@ async function callGeminiModel(model, systemPrompt, userPrompt, apiKey, apiUrl) 
 // ✅ استخراج JSON
 // ============================
 function extractJSON(text) {
-  if (!text || typeof text !== 'string') {
-    throw new SyntaxError('النص فارغ أو غير صالح');
-  }
+  if (!text || typeof text !== 'string') throw new SyntaxError('النص فارغ');
 
   const trimmed = text.trim();
   if (trimmed.startsWith('{')) return JSON.parse(trimmed);
@@ -441,124 +242,107 @@ function extractJSON(text) {
 }
 
 // ============================
-// ✅ التحقق من المحتوى والطول
+// ✅ التحقق من محتوى لغة واحدة
 // ============================
-function validateContentData(data, language = 'ar') {
+function validateSingleLanguage(data, language) {
+  if (!data || typeof data !== 'object') return null;
+
   const errors = [];
-
-  if (!data.title || typeof data.title !== 'string') errors.push('title مفقود');
-  if (!data.hook  || typeof data.hook  !== 'string') errors.push('hook مفقود');
-  if (!data.cta   || typeof data.cta   !== 'string') errors.push('cta مفقود');
-
-  if (!Array.isArray(data.segments)) {
-    errors.push('segments يجب أن يكون array');
-  } else if (data.segments.length < CONFIG.content.minSegments) {
-    errors.push(`segments أقل من ${CONFIG.content.minSegments}`);
-  } else if (data.segments.length > CONFIG.content.maxSegments) {
-    data.segments = data.segments.slice(0, CONFIG.content.maxSegments);
+  if (!data.title    || typeof data.title !== 'string') errors.push('title مفقود');
+  if (!data.hook     || typeof data.hook  !== 'string') errors.push('hook مفقود');
+  if (!data.cta      || typeof data.cta   !== 'string') errors.push('cta مفقود');
+  if (!Array.isArray(data.segments) || data.segments.length < CONFIG.content.minSegments) {
+    errors.push('segments ناقص');
   }
 
-  if (!Array.isArray(data.keywords) || data.keywords.length < CONFIG.content.minKeywords) {
-    data.keywords = data.keywords || [data.title || 'general'];
+  if (errors.length > 0) {
+    logger.warn(`⚠️ ${language}: ${errors.join(', ')}`);
+    return null;
   }
 
-  if (!Array.isArray(data.emotional_triggers)) {
-    data.emotional_triggers = [];
-  }
-
+  // ✅ حساب الطول
   const fullText  = data.segments.join(' ');
   const wordCount = fullText.trim().split(/\s+/).filter(w => w).length;
   const wps       = CONFIG.content.wordsPerSecond[language] || 2.5;
   const duration  = Math.round(wordCount / wps);
 
-  logger.info(`📊 إحصائيات النص`, {
-    wordCount,
-    duration: `${duration}s`,
-    target  : `${CONFIG.content.minDurationSeconds}-${CONFIG.content.maxDurationSeconds}s`,
-    status  :
-      duration < CONFIG.content.minDurationSeconds ? '⚠️ قصير' :
-      duration > CONFIG.content.maxDurationSeconds ? '⚠️ طويل' :
-      '✅ مثالي',
-  });
+  logger.info(`📊 ${language}: ${wordCount} كلمة | ~${duration}s | ${
+    duration < 40 ? '⚠️ قصير' : duration > 80 ? '⚠️ طويل' : '✅ مثالي'
+  }`);
 
-  if (duration < CONFIG.content.minDurationSeconds) {
-    logger.warn(`⚠️ النص قصير: ${duration}s | كلمات: ${wordCount}`);
-  }
+  if (!Array.isArray(data.keywords))        data.keywords        = [data.title];
+  if (!Array.isArray(data.emotional_triggers)) data.emotional_triggers = [];
 
-  if (duration > CONFIG.content.maxDurationSeconds) {
-    const maxWords = Math.round(CONFIG.content.maxDurationSeconds * wps);
-    const allWords = fullText.trim().split(/\s+/);
-    const segCount = data.segments.length;
-    const wPerSeg  = Math.floor(maxWords / segCount);
-
-    data.segments = Array.from({ length: segCount }, (_, i) => {
-      const start = i * wPerSeg;
-      const end   = i === segCount - 1 ? maxWords : start + wPerSeg;
-      return allWords.slice(start, end).join(' ');
-    }).filter(s => s.trim());
-  }
-
-  data.estimated_duration_seconds = duration;
   data.word_count                 = wordCount;
-
-  if (errors.length > 0) {
-    throw new Error(`❌ المحتوى غير صالح: ${errors.join(', ')}`);
-  }
+  data.estimated_duration_seconds = duration;
 
   return data;
 }
 
 // ============================
-// ✅ توليد محتوى للغة واحدة
+// ✅ الدالة الرئيسية - طلب واحد لـ 3 لغات
 // ============================
-async function generateForLanguage(language, contentType, topic, apiKey, apiUrl) {
-  const systemPrompt = SYSTEM_PROMPTS[contentType]?.[language];
-  if (!systemPrompt) {
-    throw new Error(`❌ لا يوجد قالب للغة "${language}" والنوع "${contentType}"`);
-  }
+export async function generateAllLanguagesAtOnce(contentType, topic) {
+  logger.section('🌍 توليد 3 لغات بطلب واحد');
+  logger.info(`📝 النوع  : ${contentType}`);
+  logger.info(`🎯 الموضوع: ${topic}`);
 
-  const userPrompt        = buildUserPrompt(topic, contentType, language);
-  const { minWds, maxWds } = getWordCountGuide(language);
+  const { apiKey, apiUrl } = getApiConfig();
+  const prompt = buildTrilingualPrompt(topic, contentType);
 
-  logger.info(`🌍 توليد ${language}: هدف ${minWds}-${maxWds} كلمة`);
+  logger.info(`📤 إرسال طلب واحد لـ Gemini يحتوي 3 لغات...`);
 
+  // ✅ جرب كل النماذج
   for (const model of CONFIG.models) {
     try {
-      logger.info(`🤖 ${language} | النموذج: ${model}`);
+      logger.info(`🤖 النموذج: ${model}`);
 
-      const response = await callGeminiModel(
-        model, systemPrompt, userPrompt, apiKey, apiUrl
-      );
-
+      const response   = await callGeminiModel(model, prompt, apiKey, apiUrl);
       const rawContent = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
       if (!rawContent) {
         logger.warn(`⚠️ ${model}: استجابة فارغة`);
         continue;
       }
 
-      let contentData;
+      // ✅ استخراج JSON
+      let allData;
       try {
-        contentData = extractJSON(rawContent);
-      } catch {
-        logger.warn(`⚠️ ${model}: JSON غير صالح`);
+        allData = extractJSON(rawContent);
+      } catch (e) {
+        logger.warn(`⚠️ ${model}: JSON غير صالح - ${e.message}`);
         continue;
       }
 
-      const validatedContent = validateContentData(contentData, language);
+      // ✅ التحقق من كل لغة
+      const results = {
+        ar: validateSingleLanguage(allData.ar, 'ar'),
+        en: validateSingleLanguage(allData.en, 'en'),
+        fr: validateSingleLanguage(allData.fr, 'fr'),
+      };
 
-      logger.success(`✅ ${language} تم بنجاح`, {
-        model,
-        title   : validatedContent.title,
-        words   : validatedContent.word_count,
-        duration: `${validatedContent.estimated_duration_seconds}s`,
+      const successful = Object.entries(results).filter(([, v]) => v !== null);
+      const failed     = Object.entries(results).filter(([, v]) => v === null);
+
+      logger.section('📊 نتيجة الطلب');
+      successful.forEach(([lang, data]) => {
+        logger.success(`✅ ${lang}: "${data.title}" | ${data.word_count} كلمة | ~${data.estimated_duration_seconds}s`);
+      });
+      failed.forEach(([lang]) => {
+        logger.error(`❌ ${lang}: فشل التحقق`);
       });
 
-      return validatedContent;
+      if (successful.length === 0) {
+        logger.warn(`⚠️ ${model}: جميع اللغات فشلت - جرب التالي`);
+        continue;
+      }
+
+      logger.success(`🎉 تم توليد ${successful.length}/3 لغات بطلب واحد!`);
+      return results;
 
     } catch (error) {
       if (error.isModelNotFound) { logger.warn(`⚠️ ${model}: غير موجود`);    continue; }
       if (error.isQuotaError)    { logger.warn(`⚠️ ${model}: تجاوز الحصة`); continue; }
-      if (error.isBadRequest)    { logger.warn(`⚠️ ${model}: طلب خاطئ`);    continue; }
 
       const status = error.response?.status;
       if (status === 401 || status === 403) {
@@ -566,48 +350,39 @@ async function generateForLanguage(language, contentType, topic, apiKey, apiUrl)
         throw error;
       }
 
-      logger.warn(`⚠️ ${model}: فشل - جرب التالي`);
+      logger.warn(`⚠️ ${model}: فشل`);
     }
   }
 
-  throw new Error(`❌ فشل توليد المحتوى بـ ${language} - جميع النماذج فشلت`);
+  throw new Error('❌ فشل توليد المحتوى - جميع النماذج فشلت');
 }
 
 // ============================
-// ✅ الدالة الرئيسية
+// ✅ توليد لغة واحدة (للتوافق مع generate-video.mjs)
 // ============================
 export async function generateEngagingContent(language, contentType, topic) {
   logger.info(`🎬 توليد محتوى: ${contentType} | ${language} | "${topic}"`);
 
-  const { apiKey, apiUrl }  = getApiConfig();
-  const { minWds, maxWds }  = getWordCountGuide(language);
+  // ✅ نولد الـ 3 لغات دفعة واحدة ونرجع اللغة المطلوبة
+  const allResults = await generateAllLanguagesAtOnce(contentType, topic);
 
-  logger.info(`🌐 Gemini URL  : ${apiUrl}`);
-  logger.info(`🤖 النماذج    : ${CONFIG.models.join(', ')}`);
-  logger.info(`⏱️  الهدف      : ${minWds}-${maxWds} كلمة (40-80 ثانية)`);
-  logger.info(`🔑 المفتاح    : GEMINI_API_KEY_1`);
-
-  if (!SYSTEM_PROMPTS[contentType]) {
-    throw new Error(
-      `❌ نوع المحتوى غير مدعوم: "${contentType}"\n` +
-      `المتاح: ${Object.keys(SYSTEM_PROMPTS).join(', ')}`
-    );
+  const content = allResults[language];
+  if (!content) {
+    throw new Error(`❌ فشل توليد المحتوى بـ ${language}`);
   }
 
-  return generateForLanguage(language, contentType, topic, apiKey, apiUrl);
+  logger.success(`✅ تم توليد ${language}`, {
+    title   : content.title,
+    words   : content.word_count,
+    duration: `${content.estimated_duration_seconds}s`,
+  });
+
+  return content;
 }
 
 // ============================
 // ✅ دوال مساعدة
 // ============================
-export function getSupportedLanguages() {
-  return Object.keys(SYSTEM_PROMPTS.Motivational);
-}
-
-export function getSupportedContentTypes() {
-  return Object.keys(SYSTEM_PROMPTS);
-}
-
-export function isSupported(language, contentType) {
-  return !!(SYSTEM_PROMPTS[contentType]?.[language]);
-}
+export function getSupportedLanguages()            { return ['ar', 'en', 'fr']; }
+export function getSupportedContentTypes()         { return ['Motivational', 'Educational', 'Story', 'News', 'Tech', 'Lifestyle']; }
+export function isSupported(language, contentType) { return getSupportedLanguages().includes(language) && getSupportedContentTypes().includes(contentType); }
