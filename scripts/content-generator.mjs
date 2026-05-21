@@ -8,11 +8,11 @@ dotenv.config();
 // ✅ الإعدادات
 // ============================
 const CONFIG = {
-  model      : process.env.GROK_MODEL || 'grok-3',
+  model      : process.env.GROK_MODEL || 'grok-4',  // ✅ غيّر من grok-3
   temperature: 0.85,
   maxTokens  : 3000,
   topP       : 0.95,
-  timeoutMs  : 60000,   // ✅ 60 ثانية
+  timeoutMs  : 60000,
   maxRetries : 3,
   retryDelay : 2000,
 
@@ -129,7 +129,6 @@ const CONTENT_TEMPLATES = {
 }`,
     },
 
-    // ✅ القوالب المفقودة
     News: {
       systemPrompt: `أنت مذيع أخبار احترافي يقدم الأخبار بأسلوب جذاب وموثوق.
 
@@ -419,7 +418,15 @@ async function withRetry(fn, maxRetries = CONFIG.maxRetries) {
       lastError = error;
       const status = error.response?.status;
 
-      // ✅ لا تعيد على أخطاء غير قابلة للحل
+      // ✅ طباعة تفاصيل الخطأ الكاملة للـ debug
+      logger.error('🔍 تفاصيل الخطأ', {
+        status,
+        statusText : error.response?.statusText,
+        data       : JSON.stringify(error.response?.data),
+        model      : CONFIG.model,
+        url        : error.config?.url,
+      });
+
       if (status === 401 || status === 403 || status === 400) {
         logger.error(`❌ خطأ (${status}) - لا إعادة محاولة`);
         throw error;
@@ -444,25 +451,21 @@ function extractJSON(text) {
     throw new SyntaxError('النص فارغ أو غير صالح');
   }
 
-  // ✅ حالة 1: JSON نظيف
   const trimmed = text.trim();
   if (trimmed.startsWith('{')) {
     return JSON.parse(trimmed);
   }
 
-  // ✅ حالة 2: ```json ... ```
   const jsonBlock = trimmed.match(/```json\s*([\s\S]*?)\s*```/);
   if (jsonBlock) {
     return JSON.parse(jsonBlock[1].trim());
   }
 
-  // ✅ حالة 3: ``` ... ``` بدون json
   const codeBlock = trimmed.match(/```\s*([\s\S]*?)\s*```/);
   if (codeBlock) {
     return JSON.parse(codeBlock[1].trim());
   }
 
-  // ✅ حالة 4: JSON مدفون في نص عادي
   const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     return JSON.parse(jsonMatch[0]);
@@ -477,7 +480,6 @@ function extractJSON(text) {
 function validateContentData(data, language) {
   const errors = [];
 
-  // ✅ الحقول المطلوبة
   if (!data.title || typeof data.title !== 'string') {
     errors.push('title مفقود أو غير صالح');
   }
@@ -488,24 +490,20 @@ function validateContentData(data, language) {
     errors.push('cta مفقود أو غير صالح');
   }
 
-  // ✅ segments
   if (!Array.isArray(data.segments)) {
     errors.push('segments يجب أن يكون array');
   } else if (data.segments.length < CONFIG.content.minSegments) {
-    errors.push(`segments أقل من ${CONFIG.content.minSegments} (وجدنا ${data.segments.length})`);
+    errors.push(`segments أقل من ${CONFIG.content.minSegments}`);
   } else if (data.segments.length > CONFIG.content.maxSegments) {
-    // ✅ قص الزيادة بدلاً من رفضها
     data.segments = data.segments.slice(0, CONFIG.content.maxSegments);
     logger.warn(`⚠️ تم قص segments إلى ${CONFIG.content.maxSegments}`);
   }
 
-  // ✅ keywords
   if (!Array.isArray(data.keywords) || data.keywords.length < CONFIG.content.minKeywords) {
-    logger.warn(`⚠️ keywords ناقصة - سيتم استخدام عنوان الموضوع`);
+    logger.warn(`⚠️ keywords ناقصة`);
     data.keywords = data.keywords || [data.title || 'general'];
   }
 
-  // ✅ emotional_triggers (اختياري)
   if (!Array.isArray(data.emotional_triggers)) {
     data.emotional_triggers = [];
   }
@@ -523,34 +521,30 @@ function validateContentData(data, language) {
 export async function generateEngagingContent(language, contentType, topic) {
   logger.info(`🎬 توليد محتوى: ${contentType} | ${language} | "${topic}"`);
 
-  // ✅ التحقق من المتغيرات عند الاستدعاء
   const { apiKey, apiUrl } = getApiConfig();
 
-  // ✅ التحقق من القالب
   const template = CONTENT_TEMPLATES[language]?.[contentType];
   if (!template) {
-    const availableLangs  = Object.keys(CONTENT_TEMPLATES).join(', ');
-    const availableTypes  = Object.keys(CONTENT_TEMPLATES[language] || {}).join(', ');
     throw new Error(
       `❌ لا يوجد قالب للغة "${language}" أو النوع "${contentType}"\n` +
-      `اللغات المتاحة: ${availableLangs}\n` +
-      `الأنواع المتاحة للغة "${language}": ${availableTypes}`
+      `اللغات المتاحة: ${Object.keys(CONTENT_TEMPLATES).join(', ')}`
     );
   }
 
-  // ✅ استدعاء API مع Retry
+  // ✅ استدعاء API مع response_format
   const response = await withRetry(async () => {
     return axios.post(
       `${apiUrl}/chat/completions`,
       {
-        model      : CONFIG.model,
-        messages   : [
-          { role: 'system', content: template.systemPrompt        },
-          { role: 'user',   content: template.userPrompt(topic)   },
+        model          : CONFIG.model,
+        messages       : [
+          { role: 'system', content: template.systemPrompt      },
+          { role: 'user',   content: template.userPrompt(topic) },
         ],
-        temperature: CONFIG.temperature,
-        max_tokens : CONFIG.maxTokens,
-        top_p      : CONFIG.topP,
+        response_format: { type: 'json_object' }, // ✅ أضفنا هذا
+        temperature    : CONFIG.temperature,
+        max_tokens     : CONFIG.maxTokens,
+        top_p          : CONFIG.topP,
       },
       {
         headers: {
@@ -562,33 +556,30 @@ export async function generateEngagingContent(language, contentType, topic) {
     );
   });
 
-  // ✅ التحقق من الاستجابة
   const rawContent = response.data?.choices?.[0]?.message?.content;
   if (!rawContent) {
-    throw new Error('❌ Grok API رجع استجابة فارغة أو بتركيبة غير متوقعة');
+    throw new Error('❌ Grok API رجع استجابة فارغة');
   }
 
   logger.debug(`📥 Raw response length: ${rawContent.length} chars`);
 
-  // ✅ استخراج JSON بشكل موثوق
   let contentData;
   try {
     contentData = extractJSON(rawContent);
   } catch (parseError) {
     logger.error('❌ فشل تحليل JSON', {
-      error   : parseError.message,
-      preview : rawContent.substring(0, 200),
+      error  : parseError.message,
+      preview: rawContent.substring(0, 200),
     });
     throw new Error(`❌ Grok لم يرجع JSON صالح: ${parseError.message}`);
   }
 
-  // ✅ التحقق الشامل من المحتوى
   const validatedContent = validateContentData(contentData, language);
 
   logger.success(`✅ تم توليد المحتوى`, {
-    title    : validatedContent.title,
-    segments : validatedContent.segments.length,
-    keywords : validatedContent.keywords.length,
+    title   : validatedContent.title,
+    segments: validatedContent.segments.length,
+    keywords: validatedContent.keywords.length,
     language,
   });
 
