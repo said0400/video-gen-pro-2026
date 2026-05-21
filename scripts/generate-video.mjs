@@ -8,9 +8,6 @@ import { generateAudio } from './audio-generator.mjs';
 import { getMusicUrl, getMusicMoodForContentType } from './music-library.mjs';
 import { logger } from './logger.mjs';
 
-// ✅ احذف هذا الاستيراد إذا لم تستخدمه هنا
-// import { processVideo } from './video-processor.mjs';
-
 dotenv.config();
 
 // ============================
@@ -29,10 +26,10 @@ const CONFIG = {
   videoQuality: process.env.VIDEO_QUALITY || '1080p',
 };
 
-// ✅ المفاتيح المطلوبة
+// ✅ المفاتيح المطلوبة - محدّثة
 const REQUIRED_ENV_KEYS = [
-  'GROK_API_KEY',
-  'GEMINI_API_KEY',
+  'GROQ_API_KEY',   // ✅ لتوليد النصوص
+  'GEMINI_API_KEY', // ✅ لتوليد الصوت
 ];
 
 // ============================
@@ -101,11 +98,10 @@ function validateVideos(videos) {
     throw new Error('❌ لم يتم العثور على فيديوهات مناسبة');
   }
 
-  // تصفية الفيديوهات الصالحة فقط
   const validVideos = videos.filter(v => v && (v.url || v.path));
 
   if (validVideos.length === 0) {
-    throw new Error('❌ جميع الفيديوهات المُرجعة غير صالحة (بدون url أو path)');
+    throw new Error('❌ جميع الفيديوهات المُرجعة غير صالحة');
   }
 
   logger.success(`✅ تم العثور على ${validVideos.length} فيديو صالح`);
@@ -143,23 +139,24 @@ function saveResults(inputProps) {
 }
 
 // ============================
-// Main
+// ✅ Main
 // ============================
 async function main() {
   const startTime = Date.now();
 
   try {
     logger.section(`🚀 توليد فيديو - ${CONFIG.language.toUpperCase()}`);
-    logger.info(`📋 النوع: ${CONFIG.contentType}`);
-    logger.info(`🎯 الموضوع: ${CONFIG.mainTopic}`);
-    logger.info(`📺 الجودة: ${CONFIG.videoQuality}`);
+    logger.info(`📋 النوع     : ${CONFIG.contentType}`);
+    logger.info(`🎯 الموضوع   : ${CONFIG.mainTopic}`);
+    logger.info(`📺 الجودة    : ${CONFIG.videoQuality}`);
+    logger.info(`🌍 اللغة     : ${CONFIG.language}`);
 
     // ✅ 0: التحقق من البيئة
     validateEnvironment();
     ensureDirectories();
 
-    // ✅ 1: توليد المحتوى
-    logger.section('📝 الخطوة 1: توليد المحتوى');
+    // ✅ 1: توليد المحتوى بـ Groq
+    logger.section('📝 الخطوة 1: توليد المحتوى (Groq)');
     const content = await generateEngagingContent(
       CONFIG.language,
       CONFIG.contentType,
@@ -172,8 +169,8 @@ async function main() {
     const rawVideos = await searchAllVideos(content.keywords);
     const videos    = validateVideos(rawVideos);
 
-    // ✅ 3: توليد الصوت
-    logger.section('🎙️ الخطوة 3: توليد الصوت');
+    // ✅ 3: توليد الصوت بـ Gemini TTS
+    logger.section('🎙️ الخطوة 3: توليد الصوت (Gemini TTS)');
     const fullScript = content.segments
       .filter(s => typeof s === 'string' && s.trim())
       .join(' ');
@@ -188,8 +185,9 @@ async function main() {
     // ✅ 4: اختيار الموسيقى
     logger.section('🎵 الخطوة 4: اختيار الموسيقى');
     const musicMood = getMusicMoodForContentType(CONFIG.contentType);
-    const musicUrl  = getMusicUrl(musicMood);
-    logger.info(`🎵 المود: ${musicMood} | الرابط: ${musicUrl}`);
+    const musicUrl  = await getMusicUrl(musicMood);
+    logger.info(`🎵 المود: ${musicMood}`);
+    logger.info(`🔗 الرابط: ${musicUrl}`);
 
     // ✅ 5: حفظ البيانات
     logger.section('💾 الخطوة 5: حفظ البيانات');
@@ -212,7 +210,7 @@ async function main() {
       topic      : CONFIG.mainTopic,
       quality    : CONFIG.videoQuality,
 
-      // ✅ معلومات إضافية مفيدة
+      // معلومات إضافية
       generatedAt : new Date().toISOString(),
       processingMs: Date.now() - startTime,
     };
@@ -222,11 +220,12 @@ async function main() {
     // ✅ ملخص نهائي
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     logger.section('✨ اكتمل التوليد بنجاح!');
-    logger.info(`⏱️  الوقت المستغرق: ${elapsed} ثانية`);
-    logger.info(`📁 الملفات جاهزة في: ${OUTPUT_DIR}`);
+    logger.info(`⏱️  الوقت   : ${elapsed} ثانية`);
+    logger.info(`📁 المجلد  : ${OUTPUT_DIR}`);
     logger.info(`📄 البيانات: ${propsPath}`);
-    logger.info(`🎙️  الصوت: ${audioPath}`);
-    logger.info(`🎥 الفيديوهات: ${videos.length} مقطع`);
+    logger.info(`🎙️  الصوت   : ${audioPath}`);
+    logger.info(`🎥 فيديوهات: ${videos.length} مقطع`);
+    logger.info(`🎵 موسيقى  : ${musicUrl}`);
 
   } catch (error) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
