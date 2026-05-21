@@ -89,7 +89,7 @@ jobs:
           echo "✅ تم رفع package-lock.json إلى الـ repo"
 
   # ============================================
-  # Job 2: توليد جميع الفيديوهات - طلب واحد لـ 3 لغات
+  # Job 2: توليد جميع الفيديوهات
   # ============================================
   generate-all:
     name: 🎬 Generate All Languages
@@ -136,10 +136,11 @@ jobs:
           CONTENT_TYPE=${{ github.event.inputs.content_type }}
           MAIN_TOPIC=${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY=${{ github.event.inputs.video_quality }}
-          GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }}
+          DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_URL=https://api.deepseek.com/v1
+          DEEPSEEK_MODELS=deepseek-chat,deepseek-reasoner
           GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_URL=https://generativelanguage.googleapis.com/v1beta
-          GEMINI_TEXT_MODELS=gemini-2.0-flash,gemini-2.0-flash-lite
           GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
           PIXABAY_API_KEY=${{ secrets.PIXABAY_API_KEY }}
           PIXABAY_API_URL=https://pixabay.com/api/videos/
@@ -153,7 +154,7 @@ jobs:
 
       - name: 🧪 Test APIs
         env:
-          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
         run: |
           echo "🧪 Testing API connections..."
@@ -167,10 +168,11 @@ jobs:
           CONTENT_TYPE: ${{ github.event.inputs.content_type }}
           MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
-          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_URL: https://api.deepseek.com/v1
+          DEEPSEEK_MODELS: deepseek-chat,deepseek-reasoner
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_URL: https://generativelanguage.googleapis.com/v1beta
-          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-2.0-flash-lite
           GEMINI_TTS_MODEL: gemini-2.5-flash-preview-tts
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
@@ -182,8 +184,8 @@ jobs:
 
       - name: ⏳ Wait between languages
         run: |
-          echo "⏳ انتظار 30s بين اللغات..."
-          sleep 30
+          echo "⏳ انتظار 10s بين اللغات..."
+          sleep 10
 
       - name: 🎬 Generate - English (en)
         if: contains(github.event.inputs.languages, 'en')
@@ -193,10 +195,11 @@ jobs:
           CONTENT_TYPE: ${{ github.event.inputs.content_type }}
           MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
-          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_URL: https://api.deepseek.com/v1
+          DEEPSEEK_MODELS: deepseek-chat,deepseek-reasoner
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_URL: https://generativelanguage.googleapis.com/v1beta
-          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-2.0-flash-lite
           GEMINI_TTS_MODEL: gemini-2.5-flash-preview-tts
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
@@ -208,8 +211,8 @@ jobs:
 
       - name: ⏳ Wait between languages
         run: |
-          echo "⏳ انتظار 30s بين اللغات..."
-          sleep 30
+          echo "⏳ انتظار 10s بين اللغات..."
+          sleep 10
 
       - name: 🎬 Generate - French (fr)
         if: contains(github.event.inputs.languages, 'fr')
@@ -219,10 +222,11 @@ jobs:
           CONTENT_TYPE: ${{ github.event.inputs.content_type }}
           MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
-          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_URL: https://api.deepseek.com/v1
+          DEEPSEEK_MODELS: deepseek-chat,deepseek-reasoner
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_URL: https://generativelanguage.googleapis.com/v1beta
-          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-2.0-flash-lite
           GEMINI_TTS_MODEL: gemini-2.5-flash-preview-tts
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
@@ -246,7 +250,8 @@ jobs:
             "generated_at": "${TIMESTAMP}",
             "workflow_run": "${{ github.run_id }}",
             "commit_sha"  : "${{ github.sha }}",
-            "method"      : "single_request_3_languages"
+            "text_model"  : "DeepSeek (3 languages in 1 request)",
+            "audio_model" : "Gemini TTS"
           }
           EOF
             echo "✅ Metadata: ${LANG}"
@@ -273,7 +278,8 @@ jobs:
           echo "- **الموضوع** : ${{ github.event.inputs.main_topic }}"                      >> $GITHUB_STEP_SUMMARY
           echo "- **الجودة**  : ${{ github.event.inputs.video_quality }}"                   >> $GITHUB_STEP_SUMMARY
           echo "- **اللغات**  : ${{ github.event.inputs.languages }}"                       >> $GITHUB_STEP_SUMMARY
-          echo "- **الطريقة** : طلب Gemini واحد → 3 لغات"                                   >> $GITHUB_STEP_SUMMARY
+          echo "- **النصوص**  : DeepSeek (طلب واحد - 3 لغات)"                              >> $GITHUB_STEP_SUMMARY
+          echo "- **الصوت**   : Gemini TTS × 3 لغات"                                       >> $GITHUB_STEP_SUMMARY
           echo ""                                                                             >> $GITHUB_STEP_SUMMARY
           echo "### 📁 الملفات"                                                              >> $GITHUB_STEP_SUMMARY
           echo "- \`output/input-props-ar.json\`"                                            >> $GITHUB_STEP_SUMMARY
@@ -286,14 +292,13 @@ jobs:
       - name: ❌ Failure summary
         if: failure()
         run: |
-          echo "## ❌ فشل التوليد"                                    >> $GITHUB_STEP_SUMMARY
-          echo ""                                                      >> $GITHUB_STEP_SUMMARY
-          echo "### 🔍 خطوات الإصلاح"                                 >> $GITHUB_STEP_SUMMARY
-          echo "1. تحقق من GEMINI_API_KEY_1 في GitHub Secrets"        >> $GITHUB_STEP_SUMMARY
-          echo "2. تحقق من GEMINI_API_KEY_2 في GitHub Secrets"        >> $GITHUB_STEP_SUMMARY
-          echo "3. تحقق من PIXABAY_API_KEY في GitHub Secrets"         >> $GITHUB_STEP_SUMMARY
-          echo "4. راجع الـ logs في الـ artifacts"                    >> $GITHUB_STEP_SUMMARY
-          echo "5. تجاوز الحصة؟ انتظر وأعد المحاولة"                 >> $GITHUB_STEP_SUMMARY
+          echo "## ❌ فشل التوليد"                                      >> $GITHUB_STEP_SUMMARY
+          echo ""                                                        >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 خطوات الإصلاح"                                   >> $GITHUB_STEP_SUMMARY
+          echo "1. تحقق من DEEPSEEK_API_KEY في GitHub Secrets"          >> $GITHUB_STEP_SUMMARY
+          echo "2. تحقق من GEMINI_API_KEY_2 في GitHub Secrets"          >> $GITHUB_STEP_SUMMARY
+          echo "3. تحقق من PIXABAY_API_KEY في GitHub Secrets"           >> $GITHUB_STEP_SUMMARY
+          echo "4. راجع الـ logs في الـ artifacts"                      >> $GITHUB_STEP_SUMMARY
 
   # ============================================
   # Job 3: التجميع النهائي
@@ -322,7 +327,8 @@ jobs:
           echo "- الموضوع  : ${{ github.event.inputs.main_topic }}"                                                                           >> $GITHUB_STEP_SUMMARY
           echo "- الجودة   : ${{ github.event.inputs.video_quality }}"                                                                        >> $GITHUB_STEP_SUMMARY
           echo "- اللغات   : ${{ github.event.inputs.languages }}"                                                                            >> $GITHUB_STEP_SUMMARY
-          echo "- الطريقة  : طلب Gemini واحد → 3 لغات + 3 أصوات"                                                                           >> $GITHUB_STEP_SUMMARY
+          echo "- النصوص   : DeepSeek (طلب واحد → 3 لغات)"                                                                                  >> $GITHUB_STEP_SUMMARY
+          echo "- الصوت    : Gemini TTS × 3 لغات"                                                                                           >> $GITHUB_STEP_SUMMARY
           echo ""                                                                                                                              >> $GITHUB_STEP_SUMMARY
           echo "### 📁 الملفات المولدة"                                                                                                       >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`"                                                                                                                        >> $GITHUB_STEP_SUMMARY
@@ -342,7 +348,7 @@ jobs:
           echo "════════════════════════════════════════"
           echo "✅ تم توليد جميع الفيديوهات بنجاح!"
           echo "════════════════════════════════════════"
-          echo "🤖 النصوص : Gemini (طلب واحد - 3 لغات)"
+          echo "🤖 النصوص : DeepSeek (طلب واحد - 3 لغات)"
           echo "🎙️  الصوت  : Gemini TTS × 3 لغات"
           echo "📊 راجع الـ artifacts للملفات"
           echo "════════════════════════════════════════"
@@ -355,7 +361,7 @@ jobs:
           echo "════════════════════════════════════════"
           echo "🔍 راجع الـ logs للتفاصيل"
           echo "📋 تحقق من GitHub Secrets:"
-          echo "   - GEMINI_API_KEY_1 (للنصوص)"
+          echo "   - DEEPSEEK_API_KEY (للنصوص)"
           echo "   - GEMINI_API_KEY_2 (للصوت)"
           echo "   - PIXABAY_API_KEY"
           echo "════════════════════════════════════════"
