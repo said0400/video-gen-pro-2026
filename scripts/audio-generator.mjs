@@ -1,7 +1,6 @@
 import axios from 'axios';
 import fs    from 'fs';
 import path  from 'path';
-import struct from 'python-struct'; // ❌ لا يوجد في Node
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { logger } from './logger.mjs';
