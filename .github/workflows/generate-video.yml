@@ -133,10 +133,16 @@ jobs:
     strategy:
       matrix:
         language: ${{ fromJson(needs.setup.outputs.languages) }}
-      max-parallel: 3
+      max-parallel: 1      # ✅ لغة واحدة في كل مرة لتجنب 429
       fail-fast: false
 
     steps:
+      - name: ⏳ Wait to avoid rate limits
+        run: |
+          echo "⏳ انتظار 30s لتجنب تجاوز الحصة..."
+          sleep 30
+          echo "✅ جاهز للبدء"
+
       - name: 📥 Checkout code
         uses: actions/checkout@v4
         with:
@@ -179,7 +185,7 @@ jobs:
           GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }}
           GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_URL=https://generativelanguage.googleapis.com/v1beta
-          GEMINI_TEXT_MODELS=gemini-2.0-flash,gemini-1.5-flash,gemini-2.0-flash-lite
+          GEMINI_TEXT_MODELS=gemini-2.0-flash,gemini-2.0-flash-lite,gemini-1.5-flash-latest
           GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
           PIXABAY_API_KEY=${{ secrets.PIXABAY_API_KEY }}
           PIXABAY_API_URL=https://pixabay.com/api/videos/
@@ -207,7 +213,7 @@ jobs:
           GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_URL: https://generativelanguage.googleapis.com/v1beta
-          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-1.5-flash,gemini-2.0-flash-lite
+          GEMINI_TEXT_MODELS: gemini-2.0-flash,gemini-2.0-flash-lite,gemini-1.5-flash-latest
           GEMINI_TTS_MODEL: gemini-2.5-flash-preview-tts
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           PIXABAY_API_URL: https://pixabay.com/api/videos/
@@ -276,6 +282,7 @@ jobs:
           echo "2. تحقق من GEMINI_API_KEY_2 في GitHub Secrets"        >> $GITHUB_STEP_SUMMARY
           echo "3. تحقق من PIXABAY_API_KEY في GitHub Secrets"         >> $GITHUB_STEP_SUMMARY
           echo "4. راجع الـ logs في الـ artifacts"                    >> $GITHUB_STEP_SUMMARY
+          echo "5. تجاوز الحصة؟ انتظر دقيقة وأعد المحاولة"           >> $GITHUB_STEP_SUMMARY
 
   # ============================================
   # Job 4: التجميع النهائي
