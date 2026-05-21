@@ -38,14 +38,67 @@ env:
   NODE_VERSION: '18'
 
 jobs:
+  # ============================================
+  # Job 1: إنشاء package-lock.json
+  # ============================================
+  create-lockfile:
+    name: 🔒 Create package-lock.json
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: 🔍 Check if package-lock.json exists
+        id: check
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ package-lock.json موجود"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ package-lock.json غير موجود - سيتم إنشاؤه"
+          fi
+
+      - name: 📦 Create package-lock.json
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          echo "📥 جاري إنشاء package-lock.json..."
+          npm install --legacy-peer-deps
+          echo "✅ تم إنشاء package-lock.json"
+          echo "📋 الحجم: $(wc -l < package-lock.json) سطر"
+
+      - name: 💾 Push package-lock.json to repo
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "🔒 auto: add package-lock.json [skip ci]"
+          git push
+          echo "✅ تم رفع package-lock.json إلى الـ repo"
+
+  # ============================================
+  # Job 2: الإعداد
+  # ============================================
   setup:
     name: 🔧 Setup Environment
     runs-on: ubuntu-latest
+    needs: create-lockfile
     outputs:
       languages: ${{ steps.parse.outputs.languages }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
       - name: 🔍 Parse inputs
         id: parse
@@ -57,11 +110,18 @@ jobs:
 
       - name: 📋 Display Configuration
         run: |
+          echo "════════════════════════════════════════"
+          echo "🎬 Video Generation Configuration"
+          echo "════════════════════════════════════════"
           echo "📝 Content Type : ${{ github.event.inputs.content_type }}"
           echo "🎯 Topic        : ${{ github.event.inputs.main_topic }}"
           echo "📺 Quality      : ${{ github.event.inputs.video_quality }}"
           echo "🌍 Languages    : ${{ github.event.inputs.languages }}"
+          echo "════════════════════════════════════════"
 
+  # ============================================
+  # Job 3: توليد الفيديوهات
+  # ============================================
   generate-videos:
     name: 🎥 Generate - ${{ matrix.language }}
     runs-on: ubuntu-latest
@@ -70,36 +130,68 @@ jobs:
       matrix:
         language: ${{ fromJson(needs.setup.outputs.languages) }}
       max-parallel: 3
-      fail-fast: false  # ✅ مهم - لو فشلت لغة لا يوقف الباقين
+      fail-fast: false
 
     steps:
-      - uses: actions/checkout@v4
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.ref }}
 
-      - uses: actions/setup-node@v4
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      - name: 📁 Create directories
-        run: mkdir -p output logs
-
       - name: 📦 Install dependencies
-        run: npm ci  # ✅ أفضل من npm install في CI
+        run: |
+          echo "📥 Installing packages..."
+          npm ci
+          echo "✅ Dependencies installed"
+          npm list --depth=0
 
       - name: 🎬 Install FFmpeg
         run: |
+          echo "📥 Installing FFmpeg..."
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           ffmpeg -version | head -n 1
+          echo "✅ FFmpeg installed"
+
+      - name: 📁 Create directories
+        run: |
+          mkdir -p output logs
+          echo "✅ Directories created"
+
+      - name: 🔐 Setup environment
+        run: |
+          cat > .env << EOF
+          LANGUAGE=${{ matrix.language }}
+          CONTENT_TYPE=${{ github.event.inputs.content_type }}
+          MAIN_TOPIC=${{ github.event.inputs.main_topic }}
+          VIDEO_QUALITY=${{ github.event.inputs.video_quality }}
+          GROK_API_KEY=${{ secrets.GROK_API_KEY }}
+          GROK_API_URL=https://api.x.ai/v1
+          GROK_MODEL=grok-3
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_TTS_URL=https://texttospeech.googleapis.com/v1
+          PIXABAY_API_KEY=${{ secrets.PIXABAY_API_KEY }}
+          PIXABAY_API_URL=https://pixabay.com/api/videos/
+          PEXELS_API_KEY=${{ secrets.PEXELS_API_KEY }}
+          PEXELS_API_URL=https://api.pexels.com/videos/search
+          NODE_ENV=production
+          DEBUG_MODE=false
+          LOG_TO_FILE=true
+          PARALLEL_MODE=false
+          EOF
+          echo "✅ Environment configured"
 
       - name: 🧪 Test APIs
-        env:
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/test-apis.mjs || echo "⚠️ API check warning"
+        run: |
+          echo "🧪 Testing API connections..."
+          node scripts/test-apis.mjs || echo "⚠️ Some APIs may need verification"
 
       - name: 🎬 Generate video
         id: generate
@@ -109,25 +201,37 @@ jobs:
           MAIN_TOPIC: ${{ github.event.inputs.main_topic }}
           VIDEO_QUALITY: ${{ github.event.inputs.video_quality }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          GROK_API_URL: https://api.x.ai/v1
+          GROK_MODEL: grok-3
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_TTS_URL: https://texttospeech.googleapis.com/v1
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PIXABAY_API_URL: https://pixabay.com/api/videos/
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PEXELS_API_URL: https://api.pexels.com/videos/search
+          NODE_ENV: production
+          DEBUG_MODE: 'false'
+          LOG_TO_FILE: 'true'
         run: |
+          echo "🎬 Generating video for ${{ matrix.language }}..."
           node scripts/generate-video.mjs
           echo "timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+          echo "✅ Video generation completed"
 
       - name: 📊 Generate metadata
         run: |
           cat > output/metadata-${{ matrix.language }}.json << EOF
           {
-            "language": "${{ matrix.language }}",
+            "language"    : "${{ matrix.language }}",
             "content_type": "${{ github.event.inputs.content_type }}",
-            "topic": "${{ github.event.inputs.main_topic }}",
-            "quality": "${{ github.event.inputs.video_quality }}",
+            "topic"       : "${{ github.event.inputs.main_topic }}",
+            "quality"     : "${{ github.event.inputs.video_quality }}",
             "generated_at": "${{ steps.generate.outputs.timestamp }}",
-            "workflow_run": "${{ github.run_id }}"
+            "workflow_run": "${{ github.run_id }}",
+            "commit_sha"  : "${{ github.sha }}"
           }
           EOF
+          echo "✅ Metadata generated"
 
       - name: 📤 Upload artifacts
         if: always()
@@ -140,6 +244,37 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+      - name: 📝 Success summary
+        if: success()
+        run: |
+          echo "## ✅ تم التوليد بنجاح" >> $GITHUB_STEP_SUMMARY
+          echo ""                                                           >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 التفاصيل"                                           >> $GITHUB_STEP_SUMMARY
+          echo "- **اللغة**    : ${{ matrix.language }}"                   >> $GITHUB_STEP_SUMMARY
+          echo "- **النوع**    : ${{ github.event.inputs.content_type }}"  >> $GITHUB_STEP_SUMMARY
+          echo "- **الموضوع**  : ${{ github.event.inputs.main_topic }}"    >> $GITHUB_STEP_SUMMARY
+          echo "- **الجودة**   : ${{ github.event.inputs.video_quality }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **الوقت**    : ${{ steps.generate.outputs.timestamp }}"  >> $GITHUB_STEP_SUMMARY
+          echo ""                                                           >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 الملفات"                                            >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/input-props-${{ matrix.language }}.json\`"      >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/audio-${{ matrix.language }}.wav\`"             >> $GITHUB_STEP_SUMMARY
+          echo "- \`output/metadata-${{ matrix.language }}.json\`"         >> $GITHUB_STEP_SUMMARY
+
+      - name: ❌ Failure summary
+        if: failure()
+        run: |
+          echo "## ❌ فشل التوليد"                          >> $GITHUB_STEP_SUMMARY
+          echo ""                                            >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 خطوات الإصلاح"                       >> $GITHUB_STEP_SUMMARY
+          echo "1. تحقق من API keys في GitHub Secrets"      >> $GITHUB_STEP_SUMMARY
+          echo "2. تحقق من حصص الـ APIs"                   >> $GITHUB_STEP_SUMMARY
+          echo "3. راجع الـ logs في الـ artifacts"          >> $GITHUB_STEP_SUMMARY
+          echo "4. تأكد من صحة الـ dependencies"            >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # Job 4: التجميع النهائي
+  # ============================================
   finalize:
     name: ✨ Finalize
     runs-on: ubuntu-latest
@@ -147,23 +282,52 @@ jobs:
     if: always()
 
     steps:
-      - uses: actions/download-artifact@v4
+      - name: 📥 Download all artifacts
+        uses: actions/download-artifact@v4
         with:
           path: all-outputs
 
-      - name: 📊 Final Report
+      - name: 📊 Generate final report
         run: |
-          echo "## 🎬 Generation Report" >> $GITHUB_STEP_SUMMARY
-          echo "- **Run**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Topic**: ${{ github.event.inputs.main_topic }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Languages**: ${{ github.event.inputs.languages }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Files:" >> $GITHUB_STEP_SUMMARY
-          find all-outputs -type f | sort | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+          echo "## 🎬 تقرير التوليد النهائي"                                                                                                >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                                                             >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"                                                                         >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                                                             >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 الإعدادات"                                                                                                            >> $GITHUB_STEP_SUMMARY
+          echo "- النوع    : ${{ github.event.inputs.content_type }}"                                                                        >> $GITHUB_STEP_SUMMARY
+          echo "- الموضوع  : ${{ github.event.inputs.main_topic }}"                                                                          >> $GITHUB_STEP_SUMMARY
+          echo "- الجودة   : ${{ github.event.inputs.video_quality }}"                                                                       >> $GITHUB_STEP_SUMMARY
+          echo "- اللغات   : ${{ github.event.inputs.languages }}"                                                                           >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                                                             >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 الملفات المولدة"                                                                                                      >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`"                                                                                                                       >> $GITHUB_STEP_SUMMARY
+          find all-outputs -type f | sort                                                                                                     >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`"                                                                                                                       >> $GITHUB_STEP_SUMMARY
 
-      - name: 📤 Upload report
+      - name: 📤 Upload final report
         uses: actions/upload-artifact@v4
         with:
           name: generation-report
           path: all-outputs/
           retention-days: 90
+
+      - name: ✅ Success notification
+        if: success()
+        run: |
+          echo "════════════════════════════════════════"
+          echo "✅ تم توليد جميع الفيديوهات بنجاح!"
+          echo "════════════════════════════════════════"
+          echo "📊 راجع الـ artifacts للملفات"
+          echo "📝 راجع الـ logs للتفاصيل"
+          echo "════════════════════════════════════════"
+
+      - name: ⚠️ Failure notification
+        if: failure()
+        run: |
+          echo "════════════════════════════════════════"
+          echo "⚠️ فشل بعض الفيديوهات"
+          echo "════════════════════════════════════════"
+          echo "🔍 راجع الـ logs للتفاصيل"
+          echo "📋 تحقق من إعدادات الـ API"
+          echo "════════════════════════════════════════"
