@@ -6,84 +6,235 @@ import { generateEngagingContent } from './content-generator.mjs';
 import { searchAllVideos } from './video-search.mjs';
 import { generateAudio } from './audio-generator.mjs';
 import { getMusicUrl, getMusicMoodForContentType } from './music-library.mjs';
-import { processVideo } from './video-processor.mjs';
 import { logger } from './logger.mjs';
+
+// ✅ احذف هذا الاستيراد إذا لم تستخدمه هنا
+// import { processVideo } from './video-processor.mjs';
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// ============================
+// ✅ الإعدادات
+// ============================
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const ROOT_DIR   = path.resolve(__dirname, '..');
+const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
+const LOGS_DIR   = path.join(ROOT_DIR, 'logs');
 
-// الحصول على المتغيرات من البيئة
-const LANGUAGE = process.env.LANGUAGE || 'ar';
-const CONTENT_TYPE = process.env.CONTENT_TYPE || 'Motivational';
-const MAIN_TOPIC = process.env.MAIN_TOPIC || 'النجاح والإصرار';
-const VIDEO_QUALITY = process.env.VIDEO_QUALITY || '1080p';
+const CONFIG = {
+  language    : process.env.LANGUAGE     || 'ar',
+  contentType : process.env.CONTENT_TYPE || 'Motivational',
+  mainTopic   : process.env.MAIN_TOPIC   || 'النجاح والإصرار',
+  videoQuality: process.env.VIDEO_QUALITY || '1080p',
+};
 
+// ✅ المفاتيح المطلوبة
+const REQUIRED_ENV_KEYS = [
+  'GROK_API_KEY',
+  'GEMINI_API_KEY',
+];
+
+// ============================
+// ✅ التحقق من متغيرات البيئة
+// ============================
+function validateEnvironment() {
+  const missing = REQUIRED_ENV_KEYS.filter(key => !process.env[key]);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `❌ مفاتيح API مفقودة: ${missing.join(', ')}\n` +
+      `تأكد من إضافتها في GitHub Secrets`
+    );
+  }
+
+  const validLanguages = ['ar', 'en', 'fr'];
+  if (!validLanguages.includes(CONFIG.language)) {
+    throw new Error(
+      `❌ لغة غير مدعومة: "${CONFIG.language}"\n` +
+      `اللغات المدعومة: ${validLanguages.join(', ')}`
+    );
+  }
+
+  logger.success('✅ البيئة سليمة - جميع المفاتيح موجودة');
+}
+
+// ============================
+// ✅ إنشاء المجلدات
+// ============================
+function ensureDirectories() {
+  [OUTPUT_DIR, LOGS_DIR].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+      logger.info(`📁 تم إنشاء المجلد: ${dir}`);
+    }
+  });
+}
+
+// ============================
+// ✅ التحقق من المحتوى
+// ============================
+function validateContent(content) {
+  const required = ['title', 'segments', 'keywords', 'cta'];
+  const missing  = required.filter(key => !content[key]);
+
+  if (missing.length > 0) {
+    throw new Error(`❌ المحتوى ناقص - حقول مفقودة: ${missing.join(', ')}`);
+  }
+
+  if (!Array.isArray(content.segments) || content.segments.length === 0) {
+    throw new Error('❌ segments يجب أن يكون array غير فارغ');
+  }
+
+  if (!Array.isArray(content.keywords) || content.keywords.length === 0) {
+    throw new Error('❌ keywords يجب أن يكون array غير فارغ');
+  }
+
+  logger.success(`✅ المحتوى سليم - ${content.segments.length} مقاطع`);
+}
+
+// ============================
+// ✅ التحقق من الفيديوهات
+// ============================
+function validateVideos(videos) {
+  if (!Array.isArray(videos) || videos.length === 0) {
+    throw new Error('❌ لم يتم العثور على فيديوهات مناسبة');
+  }
+
+  // تصفية الفيديوهات الصالحة فقط
+  const validVideos = videos.filter(v => v && (v.url || v.path));
+
+  if (validVideos.length === 0) {
+    throw new Error('❌ جميع الفيديوهات المُرجعة غير صالحة (بدون url أو path)');
+  }
+
+  logger.success(`✅ تم العثور على ${validVideos.length} فيديو صالح`);
+  return validVideos;
+}
+
+// ============================
+// ✅ التحقق من الصوت
+// ============================
+function validateAudio(audioPath) {
+  if (!audioPath) {
+    throw new Error('❌ فشل توليد الصوت - المسار فارغ');
+  }
+
+  if (!fs.existsSync(audioPath)) {
+    throw new Error(`❌ ملف الصوت غير موجود: ${audioPath}`);
+  }
+
+  const stats = fs.statSync(audioPath);
+  if (stats.size === 0) {
+    throw new Error(`❌ ملف الصوت فارغ: ${audioPath}`);
+  }
+
+  logger.success(`✅ الصوت جاهز: ${audioPath} (${(stats.size / 1024).toFixed(1)} KB)`);
+}
+
+// ============================
+// ✅ حفظ النتائج
+// ============================
+function saveResults(inputProps) {
+  const propsPath = path.join(OUTPUT_DIR, `input-props-${CONFIG.language}.json`);
+  fs.writeFileSync(propsPath, JSON.stringify(inputProps, null, 2), 'utf8');
+  logger.success(`✅ تم حفظ البيانات: ${propsPath}`);
+  return propsPath;
+}
+
+// ============================
+// Main
+// ============================
 async function main() {
+  const startTime = Date.now();
+
   try {
-    logger.section(`🚀 توليد فيديو احترافي - ${LANGUAGE.toUpperCase()}`);
-    logger.info(`النوع: ${CONTENT_TYPE} | الموضوع: ${MAIN_TOPIC}`);
+    logger.section(`🚀 توليد فيديو - ${CONFIG.language.toUpperCase()}`);
+    logger.info(`📋 النوع: ${CONFIG.contentType}`);
+    logger.info(`🎯 الموضوع: ${CONFIG.mainTopic}`);
+    logger.info(`📺 الجودة: ${CONFIG.videoQuality}`);
 
-    // الخطوة 1: توليد المحتوى
-    logger.section('📝 الخطوة 1: توليد المحتوى الاحترافي');
-    const content = await generateEngagingContent(LANGUAGE, CONTENT_TYPE, MAIN_TOPIC);
+    // ✅ 0: التحقق من البيئة
+    validateEnvironment();
+    ensureDirectories();
 
-    // الخطوة 2: البحث عن الفيديوهات
+    // ✅ 1: توليد المحتوى
+    logger.section('📝 الخطوة 1: توليد المحتوى');
+    const content = await generateEngagingContent(
+      CONFIG.language,
+      CONFIG.contentType,
+      CONFIG.mainTopic
+    );
+    validateContent(content);
+
+    // ✅ 2: البحث عن الفيديوهات
     logger.section('🎥 الخطوة 2: البحث عن الفيديوهات');
-    const videos = await searchAllVideos(content.keywords);
+    const rawVideos = await searchAllVideos(content.keywords);
+    const videos    = validateVideos(rawVideos);
 
-    if (videos.length === 0) {
-      throw new Error('لم نتمكن من العثور على فيديوهات مناسبة');
-    }
-
-    // الخطوة 3: توليد الصوت
+    // ✅ 3: توليد الصوت
     logger.section('🎙️ الخطوة 3: توليد الصوت');
-    const fullScript = content.segments.join(' ');
-    const audioPath = await generateAudio(fullScript, LANGUAGE);
+    const fullScript = content.segments
+      .filter(s => typeof s === 'string' && s.trim())
+      .join(' ');
 
-    // الخطوة 4: اختيار الموسيقى
-    logger.section('🎵 الخطوة 4: اختيار الموسيقى');
-    const musicMood = getMusicMoodForContentType(CONTENT_TYPE);
-    const musicUrl = getMusicUrl(musicMood);
-
-    // الخطوة 5: حفظ البيانات
-    logger.section('💾 الخطوة 5: حفظ البيانات');
-    const outputDir = path.join(__dirname, '..', 'output');
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
+    if (!fullScript) {
+      throw new Error('❌ النص الكامل فارغ بعد دمج المقاطع');
     }
 
+    const audioPath = await generateAudio(fullScript, CONFIG.language);
+    validateAudio(audioPath);
+
+    // ✅ 4: اختيار الموسيقى
+    logger.section('🎵 الخطوة 4: اختيار الموسيقى');
+    const musicMood = getMusicMoodForContentType(CONFIG.contentType);
+    const musicUrl  = getMusicUrl(musicMood);
+    logger.info(`🎵 المود: ${musicMood} | الرابط: ${musicUrl}`);
+
+    // ✅ 5: حفظ البيانات
+    logger.section('💾 الخطوة 5: حفظ البيانات');
     const inputProps = {
-      title: content.title,
-      segments: content.segments,
-      keywords: content.keywords,
-      cta: content.cta,
-      emotional_triggers: content.emotional_triggers,
-      videos: videos,
+      // المحتوى
+      title             : content.title,
+      segments          : content.segments,
+      keywords          : content.keywords,
+      cta               : content.cta,
+      emotional_triggers: content.emotional_triggers || [],
+
+      // الميديا
+      videos   : videos,
       audioPath: audioPath,
-      musicUrl: musicUrl,
-      language: LANGUAGE,
-      contentType: CONTENT_TYPE,
-      topic: MAIN_TOPIC,
-      quality: VIDEO_QUALITY
+      musicUrl : musicUrl,
+
+      // الإعدادات
+      language   : CONFIG.language,
+      contentType: CONFIG.contentType,
+      topic      : CONFIG.mainTopic,
+      quality    : CONFIG.videoQuality,
+
+      // ✅ معلومات إضافية مفيدة
+      generatedAt : new Date().toISOString(),
+      processingMs: Date.now() - startTime,
     };
 
-    const propsPath = path.join(outputDir, `input-props-${LANGUAGE}.json`);
-    fs.writeFileSync(propsPath, JSON.stringify(inputProps, null, 2));
+    const propsPath = saveResults(inputProps);
 
-    logger.success(`✅ تم إعداد جميع البيانات بنجاح!`, {
-      title: content.title,
-      segments: content.segments.length,
-      videos: videos.length,
-      audio: audioPath,
-      props: propsPath
-    });
-
-    logger.section('✨ اكتمل توليد الفيديو بنجاح!');
-    logger.info(`الملفات جاهزة في: ${outputDir}`);
+    // ✅ ملخص نهائي
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    logger.section('✨ اكتمل التوليد بنجاح!');
+    logger.info(`⏱️  الوقت المستغرق: ${elapsed} ثانية`);
+    logger.info(`📁 الملفات جاهزة في: ${OUTPUT_DIR}`);
+    logger.info(`📄 البيانات: ${propsPath}`);
+    logger.info(`🎙️  الصوت: ${audioPath}`);
+    logger.info(`🎥 الفيديوهات: ${videos.length} مقطع`);
 
   } catch (error) {
-    logger.error(`❌ حدث خطأ في توليد الفيديو`, { error: error.message });
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    logger.error('❌ فشل توليد الفيديو', {
+      error  : error.message,
+      elapsed: `${elapsed}s`,
+      lang   : CONFIG.language,
+    });
     process.exit(1);
   }
 }
