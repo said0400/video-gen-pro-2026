@@ -5,13 +5,10 @@ import { logger } from './logger.mjs';
 dotenv.config();
 
 // ============================
-// ✅ الإعدادات
+// ✅ الإعدادات - Gemini بدل Grok
 // ============================
 const CONFIG = {
-  model      : process.env.GROK_MODEL || 'grok-4',  // ✅ غيّر من grok-3
-  temperature: 0.85,
-  maxTokens  : 3000,
-  topP       : 0.95,
+  model      : process.env.GEMINI_MODEL || 'gemini-2.0-flash',
   timeoutMs  : 60000,
   maxRetries : 3,
   retryDelay : 2000,
@@ -27,14 +24,12 @@ const CONFIG = {
 // ✅ التحقق من متغيرات البيئة
 // ============================
 function getApiConfig() {
-  const apiKey = process.env.GROK_API_KEY;
-  const apiUrl = process.env.GROK_API_URL || 'https://api.x.ai/v1';
+  const apiKey = process.env.GEMINI_API_KEY;
+  const apiUrl = process.env.GEMINI_API_URL ||
+    'https://generativelanguage.googleapis.com/v1beta';
 
   if (!apiKey || apiKey === 'undefined' || apiKey.trim() === '') {
-    throw new Error('❌ GROK_API_KEY غير موجود أو فارغ في متغيرات البيئة');
-  }
-  if (!apiUrl || apiUrl === 'undefined') {
-    throw new Error('❌ GROK_API_URL غير موجود في متغيرات البيئة');
+    throw new Error('❌ GEMINI_API_KEY غير موجود أو فارغ');
   }
 
   return { apiKey, apiUrl };
@@ -198,15 +193,13 @@ const CONTENT_TEMPLATES = {
 
   en: {
     Motivational: {
-      systemPrompt: `You are an expert in creating professional motivational content that captivates viewers from the start.
+      systemPrompt: `You are an expert in creating professional motivational content.
 
 Requirements:
 - Start with a POWERFUL HOOK in the first 3 seconds
 - Use real stories or impactful statistics
 - Address the viewer directly
-- Add a valuable message
-- End with a strong CALL TO ACTION
-- Simple, powerful, clear language`,
+- End with a strong CALL TO ACTION`,
 
       userPrompt: (topic) => `Write a professional motivational video script about: "${topic}"
 
@@ -222,14 +215,7 @@ Return JSON only:
     },
 
     Educational: {
-      systemPrompt: `You are an expert teacher creating engaging educational content.
-
-Requirements:
-- Start with a curiosity-sparking question
-- Explain concepts simply
-- Use real-world examples
-- Add immediately applicable tips
-- End with a learning CTA`,
+      systemPrompt: `You are an expert teacher creating engaging educational content.`,
 
       userPrompt: (topic) => `Write a professional educational video script about: "${topic}"
 
@@ -246,6 +232,7 @@ Return JSON only:
 
     Story: {
       systemPrompt: `You are a professional storyteller who makes viewers feel the story.`,
+
       userPrompt: (topic) => `Write a professional story video about: "${topic}"
 
 Return JSON only:
@@ -260,7 +247,8 @@ Return JSON only:
     },
 
     News: {
-      systemPrompt: `You are a professional news anchor presenting news in an engaging way.`,
+      systemPrompt: `You are a professional news anchor presenting news engagingly.`,
+
       userPrompt: (topic) => `Write a professional news video script about: "${topic}"
 
 Return JSON only:
@@ -275,7 +263,8 @@ Return JSON only:
     },
 
     Tech: {
-      systemPrompt: `You are a tech expert explaining technology in a simplified, exciting way.`,
+      systemPrompt: `You are a tech expert explaining technology in a simplified way.`,
+
       userPrompt: (topic) => `Write a professional tech video script about: "${topic}"
 
 Return JSON only:
@@ -290,7 +279,8 @@ Return JSON only:
     },
 
     Lifestyle: {
-      systemPrompt: `You are a lifestyle influencer sharing practical and inspiring tips.`,
+      systemPrompt: `You are a lifestyle influencer sharing practical tips.`,
+
       userPrompt: (topic) => `Write a professional lifestyle video script about: "${topic}"
 
 Return JSON only:
@@ -298,7 +288,7 @@ Return JSON only:
   "title": "Inspiring title",
   "hook": "Everyday situation",
   "segments": ["Intro", "Problem", "Tips", "Application", "Challenge"],
-  "cta": "Try this today and tell us",
+  "cta": "Try this today",
   "keywords": ["keyword1", "keyword2", "keyword3"],
   "emotional_triggers": ["inspiration", "motivation"]
 }`,
@@ -307,13 +297,7 @@ Return JSON only:
 
   fr: {
     Motivational: {
-      systemPrompt: `Vous êtes un expert en création de contenu motivationnel professionnel.
-
-Exigences:
-- Commencez par un CROCHET PUISSANT dans les 3 premières secondes
-- Utilisez des histoires réelles ou des statistiques percutantes
-- Adressez-vous directement au spectateur
-- Terminez par un APPEL À L'ACTION fort`,
+      systemPrompt: `Vous êtes un expert en création de contenu motivationnel professionnel.`,
 
       userPrompt: (topic) => `Écrivez un script vidéo motivationnel sur: "${topic}"
 
@@ -330,6 +314,7 @@ Retournez JSON uniquement:
 
     Educational: {
       systemPrompt: `Vous êtes un enseignant expert créant du contenu éducatif engageant.`,
+
       userPrompt: (topic) => `Écrivez un script vidéo éducatif sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -345,6 +330,7 @@ Retournez JSON uniquement:
 
     Story: {
       systemPrompt: `Vous êtes un conteur professionnel.`,
+
       userPrompt: (topic) => `Écrivez une histoire vidéo sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -360,6 +346,7 @@ Retournez JSON uniquement:
 
     News: {
       systemPrompt: `Vous êtes un présentateur de nouvelles professionnel.`,
+
       userPrompt: (topic) => `Écrivez un script vidéo d'actualités sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -375,6 +362,7 @@ Retournez JSON uniquement:
 
     Tech: {
       systemPrompt: `Vous êtes un expert tech expliquant la technologie simplement.`,
+
       userPrompt: (topic) => `Écrivez un script vidéo tech sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -390,6 +378,7 @@ Retournez JSON uniquement:
 
     Lifestyle: {
       systemPrompt: `Vous êtes un influenceur lifestyle partageant des conseils pratiques.`,
+
       userPrompt: (topic) => `Écrivez un script vidéo lifestyle sur: "${topic}"
 
 Retournez JSON uniquement:
@@ -418,13 +407,12 @@ async function withRetry(fn, maxRetries = CONFIG.maxRetries) {
       lastError = error;
       const status = error.response?.status;
 
-      // ✅ طباعة تفاصيل الخطأ الكاملة للـ debug
+      // ✅ تفاصيل الخطأ للـ debug
       logger.error('🔍 تفاصيل الخطأ', {
         status,
-        statusText : error.response?.statusText,
-        data       : JSON.stringify(error.response?.data),
-        model      : CONFIG.model,
-        url        : error.config?.url,
+        data  : JSON.stringify(error.response?.data)?.substring(0, 300),
+        model : CONFIG.model,
+        url   : error.config?.url,
       });
 
       if (status === 401 || status === 403 || status === 400) {
@@ -434,7 +422,7 @@ async function withRetry(fn, maxRetries = CONFIG.maxRetries) {
 
       if (attempt < maxRetries) {
         const waitMs = CONFIG.retryDelay * Math.pow(2, attempt - 1);
-        logger.warn(`⚠️ محاولة ${attempt}/${maxRetries} فشلت - انتظار ${waitMs}ms`);
+        logger.warn(`⚠️ محاولة ${attempt}/${maxRetries} - انتظار ${waitMs}ms`);
         await new Promise(r => setTimeout(r, waitMs));
       }
     }
@@ -452,6 +440,7 @@ function extractJSON(text) {
   }
 
   const trimmed = text.trim();
+
   if (trimmed.startsWith('{')) {
     return JSON.parse(trimmed);
   }
@@ -477,7 +466,7 @@ function extractJSON(text) {
 // ============================
 // ✅ التحقق من المحتوى
 // ============================
-function validateContentData(data, language) {
+function validateContentData(data) {
   const errors = [];
 
   if (!data.title || typeof data.title !== 'string') {
@@ -500,7 +489,7 @@ function validateContentData(data, language) {
   }
 
   if (!Array.isArray(data.keywords) || data.keywords.length < CONFIG.content.minKeywords) {
-    logger.warn(`⚠️ keywords ناقصة`);
+    logger.warn('⚠️ keywords ناقصة');
     data.keywords = data.keywords || [data.title || 'general'];
   }
 
@@ -516,10 +505,11 @@ function validateContentData(data, language) {
 }
 
 // ============================
-// ✅ الدالة الرئيسية
+// ✅ الدالة الرئيسية - Gemini API
 // ============================
 export async function generateEngagingContent(language, contentType, topic) {
   logger.info(`🎬 توليد محتوى: ${contentType} | ${language} | "${topic}"`);
+  logger.info(`🤖 النموذج: ${CONFIG.model}`);
 
   const { apiKey, apiUrl } = getApiConfig();
 
@@ -531,38 +521,44 @@ export async function generateEngagingContent(language, contentType, topic) {
     );
   }
 
-  // ✅ استدعاء API مع response_format
+  // ✅ بناء الـ prompt الكامل لـ Gemini
+  const fullPrompt = `${template.systemPrompt}\n\n${template.userPrompt(topic)}`;
+
+  // ✅ استدعاء Gemini API
   const response = await withRetry(async () => {
     return axios.post(
-      `${apiUrl}/chat/completions`,
+      `${apiUrl}/models/${CONFIG.model}:generateContent?key=${apiKey}`,
       {
-        model          : CONFIG.model,
-        messages       : [
-          { role: 'system', content: template.systemPrompt      },
-          { role: 'user',   content: template.userPrompt(topic) },
+        contents: [
+          {
+            parts: [
+              { text: fullPrompt }
+            ]
+          }
         ],
-        response_format: { type: 'json_object' }, // ✅ أضفنا هذا
-        temperature    : CONFIG.temperature,
-        max_tokens     : CONFIG.maxTokens,
-        top_p          : CONFIG.topP,
+        generationConfig: {
+          temperature    : 0.85,
+          maxOutputTokens: 3000,
+          topP           : 0.95,
+          responseMimeType: 'application/json', // ✅ إجبار Gemini على JSON
+        },
       },
       {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type' : 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         timeout: CONFIG.timeoutMs,
       }
     );
   });
 
-  const rawContent = response.data?.choices?.[0]?.message?.content;
+  // ✅ استخراج النص من Gemini response
+  const rawContent = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!rawContent) {
-    throw new Error('❌ Grok API رجع استجابة فارغة');
+    throw new Error('❌ Gemini API رجع استجابة فارغة أو بتركيبة غير متوقعة');
   }
 
-  logger.debug(`📥 Raw response length: ${rawContent.length} chars`);
+  logger.debug(`📥 Raw response: ${rawContent.length} chars`);
 
+  // ✅ استخراج JSON
   let contentData;
   try {
     contentData = extractJSON(rawContent);
@@ -571,16 +567,18 @@ export async function generateEngagingContent(language, contentType, topic) {
       error  : parseError.message,
       preview: rawContent.substring(0, 200),
     });
-    throw new Error(`❌ Grok لم يرجع JSON صالح: ${parseError.message}`);
+    throw new Error(`❌ Gemini لم يرجع JSON صالح: ${parseError.message}`);
   }
 
-  const validatedContent = validateContentData(contentData, language);
+  // ✅ التحقق من المحتوى
+  const validatedContent = validateContentData(contentData);
 
   logger.success(`✅ تم توليد المحتوى`, {
     title   : validatedContent.title,
     segments: validatedContent.segments.length,
     keywords: validatedContent.keywords.length,
     language,
+    model   : CONFIG.model,
   });
 
   return validatedContent;
