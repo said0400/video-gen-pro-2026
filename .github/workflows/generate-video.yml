@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       content_type:
-        description: 'نوع المحتوى (Motivational/Educational/Story/News/Tech/Lifestyle)'
+        description: 'نوع المحتوى'
         required: true
         default: 'Motivational'
         type: choice
@@ -17,7 +17,7 @@ on:
           - Lifestyle
       
       main_topic:
-        description: 'موضوع الفيديو (مثال: النجاح والإصرار)'
+        description: 'موضوع الفيديو'
         required: true
         type: string
       
@@ -32,14 +32,13 @@ on:
           - '4K'
       
       languages:
-        description: 'اللغات المطلوبة (ar,en,fr)'
+        description: 'اللغات (ar,en,fr)'
         required: true
         default: 'ar,en,fr'
         type: string
 
 env:
   NODE_VERSION: '18'
-  FFMPEG_VERSION: '8.1.1'
 
 jobs:
   setup:
@@ -56,21 +55,9 @@ jobs:
         id: parse
         run: |
           LANGS="${{ github.event.inputs.languages }}"
-          # تحويل ar,en,fr إلى ["ar","en","fr"]
           PARSED_LANGS=$(echo "$LANGS" | tr ',' '\n' | sed 's/^/"/;s/$/"/' | paste -sd ',' | sed 's/,/,/g')
           echo "languages=[$PARSED_LANGS]" >> $GITHUB_OUTPUT
-          echo "✅ Languages parsed: $LANGS"
-      
-      - name: 📋 Display Configuration
-        run: |
-          echo "════════════════════════════════════════"
-          echo "🎬 Video Generation Configuration"
-          echo "════════════════════════════════════════"
-          echo "📝 Content Type: ${{ github.event.inputs.content_type }}"
-          echo "🎯 Topic: ${{ github.event.inputs.main_topic }}"
-          echo "📺 Quality: ${{ github.event.inputs.video_quality }}"
-          echo "🌍 Languages: ${{ github.event.inputs.languages }}"
-          echo "════════════════════════════════════════"
+          echo "✅ Languages: $LANGS"
 
   generate-videos:
     name: 🎥 Generate Video - ${{ matrix.language }}
@@ -84,14 +71,11 @@ jobs:
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       
       - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
       
       - name: 📦 Install dependencies
         run: |
@@ -127,7 +111,7 @@ jobs:
         continue-on-error: true
         run: |
           echo "🧪 Testing API connections..."
-          timeout 30 node scripts/test-apis.mjs || echo "⚠️ API test completed with warnings"
+          timeout 30 node scripts/test-apis.mjs || echo "⚠️ API test completed"
       
       - name: 🎬 Generate video content
         id: generate
@@ -152,11 +136,9 @@ jobs:
             "topic": "${{ github.event.inputs.main_topic }}",
             "quality": "${{ github.event.inputs.video_quality }}",
             "generated_at": "${{ steps.generate.outputs.timestamp }}",
-            "workflow_run": "${{ github.run_id }}",
-            "commit_sha": "${{ github.sha }}"
+            "workflow_run": "${{ github.run_id }}"
           }
           EOF
-          echo "✅ Metadata generated"
       
       - name: 📤 Upload artifacts
         if: always()
@@ -173,85 +155,6 @@ jobs:
         if: success()
         run: |
           echo "## ✅ Video Generated Successfully" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 Details" >> $GITHUB_STEP_SUMMARY
           echo "- **Language**: ${{ matrix.language }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Content Type**: ${{ github.event.inputs.content_type }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Topic**: ${{ github.event.inputs.main_topic }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Quality**: ${{ github.event.inputs.video_quality }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Generated At**: ${{ steps.generate.outputs.timestamp }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📁 Output Files" >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/input-props-${{ matrix.language }}.json\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/audio-${{ matrix.language }}.wav\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`output/metadata-${{ matrix.language }}.json\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`logs/\`" >> $GITHUB_STEP_SUMMARY
-      
-      - name: ❌ Error handling
-        if: failure()
-        run: |
-          echo "## ❌ Video Generation Failed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔍 Troubleshooting" >> $GITHUB_STEP_SUMMARY
-          echo "1. Check API keys in GitHub Secrets" >> $GITHUB_STEP_SUMMARY
-          echo "2. Verify API quotas and limits" >> $GITHUB_STEP_SUMMARY
-          echo "3. Check logs in artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "4. Ensure all dependencies are installed" >> $GITHUB_STEP_SUMMARY
-
-  finalize:
-    name: ✨ Finalize
-    runs-on: ubuntu-latest
-    needs: generate-videos
-    if: always()
-    
-    steps:
-      - name: 📥 Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: all-outputs
-      
-      - name: 📊 Generate final report
-        run: |
-          echo "## 🎬 Video Generation Report" > REPORT.md
-          echo "" >> REPORT.md
-          echo "**Workflow Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> REPORT.md
-          echo "**Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> REPORT.md
-          echo "" >> REPORT.md
-          echo "### 📋 Configuration" >> REPORT.md
-          echo "- Content Type: ${{ github.event.inputs.content_type }}" >> REPORT.md
-          echo "- Topic: ${{ github.event.inputs.main_topic }}" >> REPORT.md
-          echo "- Quality: ${{ github.event.inputs.video_quality }}" >> REPORT.md
-          echo "- Languages: ${{ github.event.inputs.languages }}" >> REPORT.md
-          echo "" >> REPORT.md
-          echo "### 📁 Generated Files" >> REPORT.md
-          echo "\`\`\`" >> REPORT.md
-          find all-outputs -type f \( -name "*.json" -o -name "*.wav" \) 2>/dev/null | sort || echo "No files found" >> REPORT.md
-          echo "\`\`\`" >> REPORT.md
-          cat REPORT.md
-      
-      - name: 📤 Upload final report
-        uses: actions/upload-artifact@v4
-        with:
-          name: generation-report
-          path: REPORT.md
-          retention-days: 90
-      
-      - name: ✅ Success notification
-        if: success()
-        run: |
-          echo "════════════════════════════════════════"
-          echo "✅ All videos generated successfully!"
-          echo "════════════════════════════════════════"
-          echo "📊 Check artifacts for output files"
-          echo "📝 Check logs for detailed information"
-          echo "════════════════════════════════════════"
-      
-      - name: ⚠️ Partial failure notification
-        if: failure()
-        run: |
-          echo "════════════════════════════════════════"
-          echo "⚠️ Some videos failed to generate"
-          echo "════════════════════════════════════════"
-          echo "🔍 Check logs for error details"
-          echo "📋 Review API configuration"
-          echo "════════════════════════════════════════"
