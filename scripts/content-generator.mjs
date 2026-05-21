@@ -5,17 +5,18 @@ import { logger } from './logger.mjs';
 dotenv.config();
 
 // ============================
-// ✅ الإعدادات
+// ✅ الإعدادات - Groq API
 // ============================
 const CONFIG = {
-  // ✅ قائمة النماذج مرتبة (الأول = الأفضل)
-  models: (process.env.GEMINI_FALLBACK_MODELS || 'gemini-1.5-flash,gemini-2.0-flash,gemini-1.5-pro')
+  // ✅ نماذج Groq المتاحة مجاناً
+  models: (process.env.GROQ_FALLBACK_MODELS ||
+    'llama-3.3-70b-versatile,llama-3.1-8b-instant,gemma2-9b-it')
     .split(',')
     .map(m => m.trim()),
 
-  timeoutMs  : 60000,
+  timeoutMs  : 30000,  // Groq أسرع بكثير
   maxRetries : 2,
-  retryDelay : 30000, // ✅ 30 ثانية عند 429
+  retryDelay : 10000,  // 10 ثواني كافية لـ Groq
 
   content: {
     minSegments: 3,
@@ -28,12 +29,11 @@ const CONFIG = {
 // ✅ التحقق من متغيرات البيئة
 // ============================
 function getApiConfig() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  const apiUrl = process.env.GEMINI_API_URL ||
-    'https://generativelanguage.googleapis.com/v1beta';
+  const apiKey = process.env.GROQ_API_KEY;
+  const apiUrl = process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1';
 
   if (!apiKey || apiKey === 'undefined' || apiKey.trim() === '') {
-    throw new Error('❌ GEMINI_API_KEY غير موجود أو فارغ');
+    throw new Error('❌ GROQ_API_KEY غير موجود - احصل عليه من https://console.groq.com/keys');
   }
 
   return { apiKey, apiUrl };
@@ -388,24 +388,28 @@ Retournez JSON uniquement:
 };
 
 // ============================
-// ✅ استدعاء نموذج واحد مع Retry
+// ✅ استدعاء Groq - متوافق مع OpenAI
 // ============================
-async function callGeminiModel(model, fullPrompt, apiKey, apiUrl) {
+async function callGroqModel(model, fullPrompt, apiKey, apiUrl) {
   for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
     try {
       const response = await axios.post(
-        `${apiUrl}/models/${model}:generateContent?key=${apiKey}`,
+        `${apiUrl}/chat/completions`,
         {
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: {
-            temperature     : 0.85,
-            maxOutputTokens : 3000,
-            topP            : 0.95,
-            responseMimeType: 'application/json',
-          },
+          model,
+          messages: [
+            { role: 'user', content: fullPrompt }
+          ],
+          temperature    : 0.85,
+          max_tokens     : 3000,
+          top_p          : 0.95,
+          response_format: { type: 'json_object' }, // ✅ إجبار على JSON
         },
         {
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type' : 'application/json',
+          },
           timeout: CONFIG.timeoutMs,
         }
       );
@@ -421,30 +425,41 @@ async function callGeminiModel(model, fullPrompt, apiKey, apiUrl) {
         data: JSON.stringify(error.response?.data)?.substring(0, 200),
       });
 
-      // ✅ أخطاء لا تستحق إعادة المحاولة
-      if (status === 401 || status === 403 || status === 400) {
+      // ✅ توقف فوراً
+      if (status === 401 || status === 403) {
         throw error;
       }
 
-      // ✅ 429 = تجاوز الحصة - انتظر وقت أطول
+      // ✅ 404 - نموذج غير موجود
+      if (status === 404) {
+        const err = new Error(`MODEL_NOT_FOUND:${model}`);
+        err.isModelNotFound = true;
+        throw err;
+      }
+
+      // ✅ 400 - طلب خاطئ
+      if (status === 400) {
+        const err = new Error(`BAD_REQUEST:${model}`);
+        err.isBadRequest = true;
+        throw err;
+      }
+
+      // ✅ 429 - تجاوز الحصة
       if (status === 429) {
         if (attempt < CONFIG.maxRetries) {
-          const waitMs = CONFIG.retryDelay * attempt; // 30s, 60s
-          logger.warn(`⚠️ ${model}: تجاوز الحصة - انتظار ${waitMs / 1000}s (محاولة ${attempt}/${CONFIG.maxRetries})`);
-          await new Promise(r => setTimeout(r, waitMs));
+          logger.warn(`⚠️ ${model}: تجاوز الحصة - انتظار ${CONFIG.retryDelay / 1000}s`);
+          await new Promise(r => setTimeout(r, CONFIG.retryDelay));
           continue;
         }
-        // ✅ رمي خطأ خاص بـ 429 ليتم التعامل معه في الـ fallback
         const err = new Error(`QUOTA_EXCEEDED:${model}`);
         err.isQuotaError = true;
         throw err;
       }
 
-      // ✅ أخطاء شبكة - انتظر قليلاً
+      // ✅ أخطاء شبكة
       if (attempt < CONFIG.maxRetries) {
-        const waitMs = 3000 * attempt;
-        logger.warn(`⚠️ ${model}: محاولة ${attempt}/${CONFIG.maxRetries} - انتظار ${waitMs}ms`);
-        await new Promise(r => setTimeout(r, waitMs));
+        logger.warn(`⚠️ ${model}: محاولة ${attempt}/${CONFIG.maxRetries}`);
+        await new Promise(r => setTimeout(r, 3000 * attempt));
       } else {
         throw error;
       }
@@ -473,7 +488,7 @@ function extractJSON(text) {
   const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
   if (jsonMatch) return JSON.parse(jsonMatch[0]);
 
-  throw new SyntaxError('لا يمكن استخراج JSON من الاستجابة');
+  throw new SyntaxError('لا يمكن استخراج JSON');
 }
 
 // ============================
@@ -510,12 +525,14 @@ function validateContentData(data) {
 }
 
 // ============================
-// ✅ الدالة الرئيسية مع Fallback
+// ✅ الدالة الرئيسية
 // ============================
 export async function generateEngagingContent(language, contentType, topic) {
   logger.info(`🎬 توليد محتوى: ${contentType} | ${language} | "${topic}"`);
 
   const { apiKey, apiUrl } = getApiConfig();
+  logger.info(`🌐 Groq API URL: ${apiUrl}`);
+  logger.info(`🤖 النماذج المتاحة: ${CONFIG.models.join(', ')}`);
 
   const template = CONTENT_TEMPLATES[language]?.[contentType];
   if (!template) {
@@ -527,14 +544,15 @@ export async function generateEngagingContent(language, contentType, topic) {
 
   const fullPrompt = `${template.systemPrompt}\n\n${template.userPrompt(topic)}`;
 
-  // ✅ جرب كل نموذج واحداً تلو الآخر
+  // ✅ جرب كل نموذج
   for (const model of CONFIG.models) {
     try {
       logger.info(`🤖 جرب النموذج: ${model}`);
 
-      const response = await callGeminiModel(model, fullPrompt, apiKey, apiUrl);
+      const response = await callGroqModel(model, fullPrompt, apiKey, apiUrl);
 
-      const rawContent = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      // ✅ استخراج النص - Groq متوافق مع OpenAI
+      const rawContent = response?.data?.choices?.[0]?.message?.content;
       if (!rawContent) {
         logger.warn(`⚠️ ${model}: استجابة فارغة - جرب التالي`);
         continue;
@@ -543,7 +561,7 @@ export async function generateEngagingContent(language, contentType, topic) {
       let contentData;
       try {
         contentData = extractJSON(rawContent);
-      } catch (parseError) {
+      } catch {
         logger.warn(`⚠️ ${model}: JSON غير صالح - جرب التالي`);
         continue;
       }
@@ -554,38 +572,40 @@ export async function generateEngagingContent(language, contentType, topic) {
         model,
         title   : validatedContent.title,
         segments: validatedContent.segments.length,
-        keywords: validatedContent.keywords.length,
         language,
       });
 
       return validatedContent;
 
     } catch (error) {
-      // ✅ 429 = جرب النموذج التالي
+      if (error.isModelNotFound) {
+        logger.warn(`⚠️ ${model}: غير موجود - جرب التالي`);
+        continue;
+      }
       if (error.isQuotaError) {
-        logger.warn(`⚠️ ${model}: تجاوز الحصة - جرب النموذج التالي`);
+        logger.warn(`⚠️ ${model}: تجاوز الحصة - جرب التالي`);
+        continue;
+      }
+      if (error.isBadRequest) {
+        logger.warn(`⚠️ ${model}: طلب خاطئ - جرب التالي`);
         continue;
       }
 
-      // ✅ أخطاء 401/403 = توقف فوراً
       const status = error.response?.status;
       if (status === 401 || status === 403) {
-        logger.error(`❌ خطأ في المصادقة (${status}) - تحقق من GEMINI_API_KEY`);
+        logger.error(`❌ خطأ مصادقة - تحقق من GROQ_API_KEY`);
         throw error;
       }
 
-      // ✅ أخطاء أخرى = جرب التالي
-      logger.warn(`⚠️ ${model}: فشل (${error.message}) - جرب التالي`);
+      logger.warn(`⚠️ ${model}: فشل - جرب التالي`);
       continue;
     }
   }
 
-  // ✅ كل النماذج فشلت
   throw new Error(
-    `❌ جميع النماذج فشلت!\n` +
+    `❌ جميع نماذج Groq فشلت!\n` +
     `النماذج المجربة: ${CONFIG.models.join(', ')}\n` +
-    `السبب: تجاوز الحصة أو خطأ في الشبكة\n` +
-    `الحل: انتظر دقيقة وأعد المحاولة`
+    `الحل: تحقق من GROQ_API_KEY على https://console.groq.com/keys`
   );
 }
 
